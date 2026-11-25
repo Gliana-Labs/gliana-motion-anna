@@ -1,7 +1,15 @@
 {
   "schema": 4,
   "required_executas": [],
-  "tags": ["video", "captions", "subtitles", "reels", "tiktok", "shorts", "editing"],
+  "tags": [
+    "video",
+    "captions",
+    "subtitles",
+    "reels",
+    "tiktok",
+    "shorts",
+    "editing"
+  ],
   "system_prompt_addendum": "Motion Lite adds animated captions and a headline to a short talking video (up to 60 seconds) and exports an MP4 on the user's device. When the user wants captions or subtitles on a video, or to edit a talking-head clip for Reels, TikTok or Shorts, open the app's main view.",
   "ui": {
     "bundle": {
@@ -14,12 +22,26 @@
         "name": "main",
         "title": "Motion Lite",
         "default": true,
-        "default_size": { "w": 980, "h": 820 },
-        "min_size": { "w": 360, "h": 560 }
+        "default_size": {
+          "w": 980,
+          "h": 820
+        },
+        "min_size": {
+          "w": 360,
+          "h": 560
+        }
       }
     ],
-    "csp_overrides": {},
+    "csp_overrides": {
+      "connect-src": [
+        "https:"
+      ]
+    },
     "state_merge": "last_writer_wins"
   },
-  "dev": { "fixtures": [], "seed_storage": {}, "user_id": 1 }
+  "dev": {
+    "fixtures": [],
+    "seed_storage": {},
+    "user_id": 1
+  }
 }

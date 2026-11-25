@@ -77,31 +77,59 @@ function mono(buf) {
 async function transcribePiece(samples, seg, lang, stt) {
   const attempts = [];
   if (stt.working) attempts.push(stt.working);
-  for (const a of [{ format: 'wav' }, { format: 'm4a' }]) if (!attempts.some((x) => x.format === a.format && !x.model)) attempts.push(a);
+  // First as a link (2026-11-26: inline base64 failed on EVERY model with the provider's "url error", so Anna's inline
+  // path is the broken part): the piece goes to the user's Anna file storage and the provider fetches a presigned URL.
+  for (const a of [{ format: 'wav', via: 'url' }, { format: 'm4a', via: 'url' }, { format: 'wav' }, { format: 'm4a' }])
+    if (!attempts.some((x) => x.format === a.format && x.via === a.via && !x.model)) attempts.push(a);
   if (!stt.models) {
     const cat = await anna.llm.catalog({ serviceType: 'stt' }).catch(() => null);
     stt.models = (cat?.models ?? []).map((m) => m.modelName).filter(Boolean);
   }
-  for (const m of stt.models) for (const format of ['m4a', 'wav']) if (!attempts.some((x) => x.model === m && x.format === format)) attempts.push({ format, model: m });
+  for (const m of stt.models) for (const format of ['wav', 'm4a']) if (!attempts.some((x) => x.model === m && x.format === format && x.via === 'url')) attempts.push({ format, model: m, via: 'url' });
   let lastErr = null;
   for (const a of attempts) {
+    let uploaded = null;
     try {
-      const b64 = a.format === 'm4a' ? await m4aBase64(samples, seg.from, seg.to) : toBase64(wavBytes(samples, STT_RATE, seg.from, seg.to));
-      if (!b64) continue; // this browser cannot encode AAC
-      const r = await anna.audio.transcribe({ audioBase64: b64, format: a.format, ...(a.model ? { model: a.model } : {}), ...(lang ? { language: lang } : {}) }, { timeoutMs: 120_000 });
+      const bytes = a.format === 'm4a' ? await m4aBytes(samples, seg.from, seg.to) : wavBytes(samples, STT_RATE, seg.from, seg.to);
+      if (!bytes) continue; // this browser cannot encode AAC
+      const common = { format: a.format, ...(a.model ? { model: a.model } : {}), ...(lang ? { language: lang } : {}) };
+      let r;
+      if (a.via === 'url') {
+        uploaded = await uploadForStt(bytes, a.format);
+        r = await anna.audio.transcribe({ audioUrl: uploaded.url, ...common }, { timeoutMs: 120_000 });
+      } else {
+        r = await anna.audio.transcribe({ audioBase64: toBase64(bytes), ...common }, { timeoutMs: 120_000 });
+      }
       stt.working = a;
       return String(r?.text ?? '').trim();
     } catch (e) {
       if (/QUOTA/i.test(String(e?.code ?? e?.message))) throw e; // out of credits: retrying other models would not help
       lastErr = e;
-      stt.tried.push(`${a.model ?? 'default'}/${a.format}`);
+      stt.tried.push(`${a.model ?? 'default'}/${a.format}/${a.via ?? 'inline'}`);
+    } finally {
+      if (uploaded) anna.files.delete({ path: uploaded.path }).catch(() => undefined);
     }
   }
   throw new Error(`Transcription failed (${stt.tried.slice(-4).join(', ')}): ${String(lastErr?.message ?? lastErr).slice(0, 200)}`);
 }
 
-/** A piece of mono 16 kHz audio as base64 M4A (AAC-LC), or null when this browser has no AAC encoder. */
-async function m4aBase64(samples, from, to) {
+/**
+ * Put one audio piece in the user's Anna file storage and return a 10-minute presigned link for the STT provider.
+ * Deleted again right after transcription (the caller's finally).
+ */
+async function uploadForStt(bytes, format) {
+  const mime = format === 'm4a' ? 'audio/mp4' : 'audio/wav';
+  const path = `stt/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${format}`;
+  const init = await anna.files.upload_init({ path, content_type: mime, size: bytes.byteLength, ttl_seconds: 900 });
+  const put = await fetch(init.put_url, { method: 'PUT', headers: { 'content-type': mime, ...(init.headers ?? {}) }, body: bytes });
+  if (!put.ok) throw new Error(`upload failed (${put.status})`);
+  await anna.files.upload_finalize({ path, size: bytes.byteLength });
+  const dl = await anna.files.download_url({ path, ttl_seconds: 600 });
+  return { path, url: dl.get_url };
+}
+
+/** A piece of mono 16 kHz audio as M4A (AAC-LC) bytes, or null when this browser has no AAC encoder. */
+async function m4aBytes(samples, from, to) {
   if (!('AudioEncoder' in window)) return null;
   let rate = 16000;
   let up = 1;
@@ -131,7 +159,7 @@ async function m4aBase64(samples, from, to) {
   }
   await enc.flush();
   muxer.finalize();
-  return toBase64(new Uint8Array(muxer.target.buffer));
+  return new Uint8Array(muxer.target.buffer);
 }
 async function makeCaptions() {
   if (!anna) throw new Error('Open Motion Lite inside Anna to make captions.');
