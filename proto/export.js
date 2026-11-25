@@ -113,7 +113,34 @@ async function exportVideo(file) {
   venc.configure(vc.cfg);
 
   const frames = Math.floor(duration * FPS);
-  for (let i = 0; i < frames; i++) {
+  const mode = new URLSearchParams(location.search).get('mode') ?? 'seek';
+  let encoded = 0;
+  if (mode === 'play') {
+    // Play in real time and encode each frame as it is shown (requestVideoFrameCallback): no seeking, so the export
+    // takes about the video's own length. A frame shown while the encoder is still busy is skipped, not queued.
+    await new Promise((resolve) => {
+      let lastKey = -1e9;
+      const onFrame = (_now, meta) => {
+        const t = meta.mediaTime;
+        if (venc.encodeQueueSize <= 6) {
+          g.drawImage(v, 0, 0, width, height);
+          drawCaption(g, width, height, t);
+          const frame = new VideoFrame(cv, { timestamp: Math.round(t * 1e6), duration: Math.round(1e6 / FPS) });
+          const key = t - lastKey >= 2;
+          if (key) lastKey = t;
+          venc.encode(frame, { keyFrame: key });
+          frame.close();
+          encoded++;
+        }
+        if (!v.ended) v.requestVideoFrameCallback(onFrame);
+      };
+      v.onended = () => resolve();
+      v.requestVideoFrameCallback(onFrame);
+      v.currentTime = 0;
+      v.play();
+    });
+  }
+  for (let i = 0; mode === 'seek' && i < frames; i++) {
     const t = i / FPS;
     await seekTo(v, t);
     g.drawImage(v, 0, 0, width, height);
@@ -150,7 +177,7 @@ async function exportVideo(file) {
   a.href = URL.createObjectURL(blob);
   a.download = 'motion-lite-test.mp4';
   a.hidden = false;
-  const result = { seconds: ms / 1000, videoSeconds: (tVideo - t0) / 1000, duration, frames, width, height, videoCodec: vc.codec, audioCodec: ac?.codec ?? null, bytes: buf.byteLength, speed: duration / (ms / 1000) };
+  const result = { mode, encodedFrames: mode === 'play' ? encoded : frames, seconds: ms / 1000, videoSeconds: (tVideo - t0) / 1000, duration, frames, width, height, videoCodec: vc.codec, audioCodec: ac?.codec ?? null, bytes: buf.byteLength, speed: duration / (ms / 1000) };
   log(`done in ${result.seconds.toFixed(1)} s (${result.speed.toFixed(2)}x realtime) · ${(buf.byteLength / 1e6).toFixed(1)} MB`);
   window.__result = result;
   window.__mp4 = buf;
