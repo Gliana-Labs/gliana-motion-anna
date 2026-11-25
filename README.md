@@ -58,3 +58,7 @@ minute at 6 Mbps; ~3 Mbps would halve it).
 python3 -m http.server 5190 --bind 127.0.0.1
 # open http://127.0.0.1:5190/proto/export.html and pick a video
 ```
+
+## Licences
+
+This app: MIT. Bundled: Plus Jakarta Sans (SIL OFL 1.1, `app/bundle/fonts/OFL.txt`), mp4-muxer (MIT). Test videos in `test-media/` are generated with ffmpeg (test pattern + tone).
