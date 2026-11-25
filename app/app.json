@@ -1,0 +1,8 @@
+{
+  "slug": "motion-lite",
+  "version": "0.1.0",
+  "name": "Motion Lite",
+  "tagline": "Animated captions for your talking videos in a minute: AI writes them, you tweak, your device exports the MP4.",
+  "description": "Motion Lite turns a short talking video (up to 60 seconds) into a captioned clip ready for Reels, TikTok or Shorts.\n\n1. Choose a video. It stays on your device; only its speech is sent for transcription.\n2. Motion Lite finds where you speak, transcribes each part, and the AI splits it into short punchy captions, picks the word to highlight and writes a headline.\n3. Pick a look (Pop, Karaoke or Duo), fix any word, change the headline, and watch the preview.\n4. Export: your own device renders the MP4 with the captions and the original sound (about the video's length on a mid-range phone).\n\nTranscription and captions use your Anna credits. Want cuts, motion graphics and styles copied from other videos? The full editor is at motion.glianalabs.com.",
+  "category": "creative"
+}

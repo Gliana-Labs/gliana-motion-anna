@@ -4,6 +4,27 @@ A separate, Anna-only version of Gliana Motion: upload a short talking-head vide
 and the browser exports the MP4. Transcription and the edit plan run on the user's Anna credits; rendering runs in the
 user's browser, so it costs no server time. motion.glianalabs.com is untouched.
 
+## The Anna app (app/)
+
+Slug `motion-lite`, bundle-only (no executa, no external origins).
+- **Speech:** found in the browser (`logic.speechSegments`: energy, adaptive threshold, 250 ms pauses split, 0.6-8 s
+  pieces). Each piece is transcribed with `anna.audio.transcribe` (the user's Anna credits). Anna returns text without
+  timestamps, so a piece's text has that piece's real start and end.
+- **Plan:** one `anna.llm.complete` call splits each piece into 2-5 word phrases, picks a highlight word and writes a
+  headline. Phrases are used only when they spell the piece's own words (`timeCaptions`), else 3-word fallback.
+- **Looks:** Pop, Karaoke (word by word), Duo (pinned lime headline, pink highlights). `render.js` draws preview and
+  export with the same code.
+- **Export:** play mode (below), 3.5 Mbps H.264 (else VP9/AV1) + AAC (else Opus).
+
+Harness run (mocked transcribe + LLM, real speech detection and export), 14 s test video with three speech bursts:
+three pieces found at 0.5 / 4.2 / 8.9 s, 6 captions, exported in 14 s, valid MP4 (H.264 + Opus, 419 frames).
+
+```bash
+npm install && npm test
+cd app && npx anna-app validate --strict
+npx anna-app dev --mock-llm fixtures/replies.jsonl
+```
+
 ## Status
 
 **Export test (proto/), 2026-11-26.** Frames are read from a `<video>` seeked frame by frame, drawn with captions on a

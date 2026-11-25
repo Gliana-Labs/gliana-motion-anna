@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Motion Lite</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script src="./app.js" type="module"></script>
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="7" width="20" height="18" rx="4" fill="currentColor" /><path d="M23 13l6-4v14l-6-4z" fill="currentColor" /></svg>
+        <div>
+          <h1>Motion Lite</h1>
+          <p class="muted">Auto captions for talking videos</p>
+        </div>
+      </div>
+    </header>
+
+    <section id="pick" class="card">
+      <label class="drop" for="file">
+        <input type="file" id="file" accept="video/*" />
+        <strong>Choose a video</strong>
+        <span class="muted">A talking video up to 60 seconds. It stays on your device; only its speech is sent for transcription.</span>
+      </label>
+      <div class="row opts">
+        <label class="inline">Language
+          <select id="lang">
+            <option value="">Auto</option>
+            <option value="id">Bahasa Indonesia</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+        <div class="styles" role="radiogroup" aria-label="Caption style">
+          <button type="button" class="sty" data-style="pop" aria-checked="true" role="radio">Pop</button>
+          <button type="button" class="sty" data-style="karaoke" aria-checked="false" role="radio">Karaoke</button>
+          <button type="button" class="sty" data-style="duo" aria-checked="false" role="radio">Duo</button>
+        </div>
+      </div>
+      <button type="button" id="make" class="primary" disabled>Make captions</button>
+      <p id="status" class="status" role="status"></p>
+    </section>
+
+    <section id="studio" class="studio" hidden>
+      <div class="stage">
+        <canvas id="cv" aria-label="Preview"></canvas>
+        <div class="row controls">
+          <button type="button" id="play" class="primary">Play</button>
+          <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Position" />
+        </div>
+      </div>
+      <div class="side card">
+        <label class="inline title-row">Headline <input id="title" maxlength="60" /></label>
+        <div class="styles" role="radiogroup" aria-label="Caption style" id="styles2"></div>
+        <h2>Captions</h2>
+        <ol id="caps" class="caps"></ol>
+        <button type="button" id="export" class="primary">Export MP4</button>
+        <p id="ex-status" class="status" role="status"></p>
+        <a id="dl" class="primary dl" hidden>Download MP4</a>
+        <p class="muted small">Want cuts, motion graphics and styles copied from other videos? Use the full editor at
+          <a href="https://motion.glianalabs.com" target="_blank" rel="noopener">motion.glianalabs.com</a>.</p>
+      </div>
+    </section>
+
+    <!-- Not `hidden`: Chrome on Android draws no frames for a hidden video, so requestVideoFrameCallback never fires. -->
+    <video id="v" playsinline preload="auto" class="src"></video>
+    <footer class="foot">Transcription and AI captions use your Anna credits. The video is rendered and exported on your own device.</footer>
+  </body>
+</html>

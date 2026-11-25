@@ -1,0 +1,345 @@
+// Motion Lite on Anna: pick a talking video, get captions, export an MP4, all without our servers.
+//   speech:  found in the browser (logic.speechSegments), each stretch transcribed with anna.audio.transcribe
+//            (the user's Anna credits) so every caption has a real start and end;
+//   plan:    one anna.llm.complete call splits the text into short phrases, picks highlight words and a headline;
+//   render:  the same overlay code draws the preview and the export (render.js);
+//   export:  the video plays once in real time, each shown frame is drawn and encoded with WebCodecs, muxed with the
+//            original audio by mp4-muxer. Measured on a mid-range phone (Dimensity 7300): 60 s in about 67 s.
+import { AnnaAppRuntime } from '/static/anna-apps/_sdk/latest/index.js';
+import { Muxer, ArrayBufferTarget } from './vendor/mp4-muxer.mjs';
+import { MAX_SECONDS, STT_RATE, PLAN_PROMPT, speechSegments, wavBytes, toBase64, timeCaptions, captionAt, cleanTitle, extractJson } from './logic.js';
+import { STYLES, drawOverlay } from './render.js';
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const FPS = 30;
+const MAX_W = 1080;
+
+let anna = null;
+let file = null;
+let project = { style: 'pop', title: '', captions: [] };
+let size = { w: 720, h: 1280 };
+
+function say(el, msg, err = false) {
+  el.textContent = msg;
+  el.classList.toggle('err', err);
+}
+const store = (k, v) => anna?.storage.set({ key: k, value: v }).catch(() => undefined);
+
+// ── Video ────────────────────────────────────────────────────────────────
+const v = $('v');
+async function loadVideo(f) {
+  v.src = URL.createObjectURL(f);
+  v.muted = false;
+  await new Promise((resolve, reject) => {
+    v.onloadedmetadata = resolve;
+    v.onerror = () => reject(new Error('This video cannot be opened here. Try an MP4 or WebM.'));
+  });
+  if (!(v.duration > 0)) throw new Error('Could not read the video length.');
+  if (v.duration > MAX_SECONDS + 0.5) throw new Error(`This video is ${Math.round(v.duration)} s. Motion Lite takes up to ${MAX_SECONDS} s.`);
+  // The shorter side at most 1080 px: a 1080x1920 phone video keeps its size, a 4K one is scaled down.
+  const k = Math.min(1, MAX_W / Math.min(v.videoWidth, v.videoHeight));
+  size = { w: Math.round((v.videoWidth * k) / 2) * 2, h: Math.round((v.videoHeight * k) / 2) * 2 };
+  const cv = $('cv');
+  cv.width = size.w;
+  cv.height = size.h;
+}
+
+async function decodeAudio(f, rate) {
+  const ctx = new OfflineAudioContext(1, 1, rate);
+  const buf = await ctx.decodeAudioData(await f.arrayBuffer());
+  return buf;
+}
+function mono(buf) {
+  const out = new Float32Array(buf.length);
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const d = buf.getChannelData(c);
+    for (let i = 0; i < d.length; i++) out[i] += d[i] / buf.numberOfChannels;
+  }
+  return out;
+}
+
+// ── Captions: speech → text → phrases ────────────────────────────────────
+async function makeCaptions() {
+  if (!anna) throw new Error('Open Motion Lite inside Anna to make captions.');
+  say($('status'), 'Listening for speech…');
+  let samples;
+  try {
+    samples = mono(await decodeAudio(file, STT_RATE));
+  } catch {
+    throw new Error('This video has no audio track we can read.');
+  }
+  const segs = speechSegments(samples, STT_RATE);
+  if (!segs.length) throw new Error('No speech found in this video.');
+  const lang = $('lang').value || undefined;
+  let done = 0;
+  const texts = new Array(segs.length).fill('');
+  const queue = segs.map((s, i) => i);
+  const worker = async () => {
+    while (queue.length) {
+      const i = queue.shift();
+      const b64 = toBase64(wavBytes(samples, STT_RATE, segs[i].from, segs[i].to));
+      const r = await anna.audio.transcribe({ audioBase64: b64, format: 'wav', ...(lang ? { language: lang } : {}) }, { timeoutMs: 120_000 });
+      texts[i] = String(r?.text ?? '').trim();
+      done++;
+      say($('status'), `Transcribing ${done}/${segs.length}…`);
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  const segments = segs.map((s, i) => ({ ...s, text: texts[i] })).filter((s) => s.text);
+  if (!segments.length) throw new Error('The speech could not be transcribed. Try a clearer recording.');
+
+  say($('status'), 'Writing captions…');
+  let plan = null;
+  try {
+    const r = await anna.llm.complete({
+      systemPrompt: PLAN_PROMPT,
+      messages: [{ role: 'user', content: segments.map((s, i) => `${i}: ${s.text}`).join('\n') }],
+      maxTokens: 2500,
+      temperature: 0.3,
+      thinking: false,
+    });
+    plan = extractJson(r?.content?.text);
+  } catch {
+    plan = null; // captions still come out, phrased by the fallback
+  }
+  // Segment numbers in the prompt index the filtered list.
+  return { title: cleanTitle(plan?.title), captions: timeCaptions(segments, plan) };
+}
+
+// ── Preview ──────────────────────────────────────────────────────────────
+const g = $('cv').getContext('2d');
+function paint() {
+  g.drawImage(v, 0, 0, size.w, size.h);
+  drawOverlay(g, size.w, size.h, v.currentTime, project);
+  $('seek').value = String(Math.round((v.currentTime / v.duration) * 1000));
+  document.querySelectorAll('#caps li').forEach((li) => li.classList.toggle('now', Number(li.dataset.from) <= v.currentTime && v.currentTime < Number(li.dataset.to)));
+}
+function loop() {
+  paint();
+  if (!v.paused && !v.ended) v.requestVideoFrameCallback(loop);
+}
+async function seekTo(t) {
+  v.currentTime = t;
+  await new Promise((r) => (v.onseeked = r));
+  paint();
+}
+
+function renderStyles(el) {
+  el.innerHTML = Object.entries(STYLES)
+    .map(([id, s]) => `<button type="button" class="sty" role="radio" data-style="${id}" aria-checked="${id === project.style}">${s.name}</button>`)
+    .join('');
+  el.querySelectorAll('.sty').forEach((b) =>
+    (b.onclick = () => {
+      project.style = b.dataset.style;
+      document.querySelectorAll('.sty').forEach((x) => x.setAttribute('aria-checked', String(x.dataset.style === project.style)));
+      paint();
+      save();
+    }),
+  );
+}
+
+function renderCaps() {
+  const fmt = (t) => `${Math.floor(t / 60)}:${String((t % 60).toFixed(1)).padStart(4, '0')}`;
+  $('caps').innerHTML = project.captions
+    .map((c, i) => `<li data-i="${i}" data-from="${c.from}" data-to="${c.to}"><span class="t">${fmt(c.from)}</span><input value="${esc(c.text)}" aria-label="Caption ${i + 1}" /><input value="${esc(c.hi)}" placeholder="highlight" aria-label="Highlight word ${i + 1}" /></li>`)
+    .join('');
+  $('caps').querySelectorAll('li').forEach((li) => {
+    const c = project.captions[Number(li.dataset.i)];
+    const [text, hi] = li.querySelectorAll('input');
+    text.onchange = () => {
+      c.text = text.value.trim();
+      // Re-spread the words over the caption's time so karaoke still follows.
+      const ws = c.text.split(/\s+/).filter(Boolean);
+      const tot = ws.reduce((a, w) => a + w.length, 0) || 1;
+      let t0 = c.from;
+      c.words = ws.map((w) => {
+        const d = ((c.to - c.from) * w.length) / tot;
+        const r = { w, from: t0, to: t0 + d };
+        t0 += d;
+        return r;
+      });
+      paint();
+      save();
+    };
+    hi.onchange = () => {
+      c.hi = hi.value.trim();
+      paint();
+      save();
+    };
+    li.querySelector('.t').onclick = () => seekTo(c.from + 0.01);
+  });
+}
+const save = () => store('last', { name: file?.name, ...project });
+
+// ── Export ───────────────────────────────────────────────────────────────
+async function pickVideoCodec(w, h) {
+  for (const c of [{ codec: 'avc1.640028', mux: 'avc' }, { codec: 'vp09.00.40.08', mux: 'vp9' }, { codec: 'av01.0.08M.08', mux: 'av1' }]) {
+    const cfg = { codec: c.codec, width: w, height: h, bitrate: 3_500_000, framerate: FPS };
+    if ((await VideoEncoder.isConfigSupported(cfg).catch(() => ({}))).supported) return { ...c, cfg };
+  }
+  return null;
+}
+async function pickAudioCodec(rate, ch) {
+  for (const c of [{ codec: 'mp4a.40.2', mux: 'aac' }, { codec: 'opus', mux: 'opus' }]) {
+    const cfg = { codec: c.codec, sampleRate: rate, numberOfChannels: ch, bitrate: 128_000 };
+    if ((await AudioEncoder.isConfigSupported(cfg).catch(() => ({}))).supported) return { ...c, cfg };
+  }
+  return null;
+}
+
+async function exportMp4() {
+  if (!('VideoEncoder' in window)) throw new Error('This browser cannot export video. Use a recent Chrome or Edge.');
+  const { w, h } = size;
+  const vc = await pickVideoCodec(w, h);
+  if (!vc) throw new Error('No video encoder available in this browser.');
+  let audio = null;
+  try {
+    audio = await decodeAudio(file, 48000);
+  } catch {
+    audio = null;
+  }
+  const ch = audio ? Math.min(2, audio.numberOfChannels) : 0;
+  const ac = audio ? await pickAudioCodec(audio.sampleRate, ch) : null;
+  const muxer = new Muxer({
+    target: new ArrayBufferTarget(),
+    video: { codec: vc.mux, width: w, height: h, frameRate: FPS },
+    ...(ac ? { audio: { codec: ac.mux, numberOfChannels: ch, sampleRate: audio.sampleRate } } : {}),
+    fastStart: 'in-memory',
+    firstTimestampBehavior: 'offset',
+  });
+  const venc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => console.error(e) });
+  venc.configure(vc.cfg);
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+  const eg = cv.getContext('2d');
+
+  // Play once, muted, in real time; draw and encode each frame as it is shown.
+  v.pause();
+  v.muted = true;
+  await seekTo(0);
+  await new Promise((resolve) => {
+    let lastKey = -1e9;
+    const onFrame = (_now, meta) => {
+      const t = meta.mediaTime;
+      if (venc.encodeQueueSize <= 6) {
+        eg.drawImage(v, 0, 0, w, h);
+        drawOverlay(eg, w, h, t, project);
+        const frame = new VideoFrame(cv, { timestamp: Math.round(t * 1e6), duration: Math.round(1e6 / FPS) });
+        const key = t - lastKey >= 2;
+        if (key) lastKey = t;
+        venc.encode(frame, { keyFrame: key });
+        frame.close();
+      }
+      say($('ex-status'), `Rendering ${Math.min(99, Math.round((t / v.duration) * 100))}%… keep this window open.`);
+      if (!v.ended) v.requestVideoFrameCallback(onFrame);
+    };
+    v.onended = () => resolve();
+    v.requestVideoFrameCallback(onFrame);
+    v.play();
+  });
+  await venc.flush();
+  if (ac) {
+    say($('ex-status'), 'Adding sound…');
+    const aenc = new AudioEncoder({ output: (chunk, meta) => muxer.addAudioChunk(chunk, meta), error: (e) => console.error(e) });
+    aenc.configure(ac.cfg);
+    for (let s = 0; s < audio.length; s += 4096) {
+      const n = Math.min(4096, audio.length - s);
+      const data = new Float32Array(n * ch);
+      for (let c = 0; c < ch; c++) data.set(audio.getChannelData(Math.min(c, audio.numberOfChannels - 1)).subarray(s, s + n), c * n);
+      const ad = new AudioData({ format: 'f32-planar', sampleRate: audio.sampleRate, numberOfFrames: n, numberOfChannels: ch, timestamp: Math.round((s / audio.sampleRate) * 1e6), data });
+      aenc.encode(ad);
+      ad.close();
+    }
+    await aenc.flush();
+  }
+  muxer.finalize();
+  v.muted = false;
+  return new Blob([muxer.target.buffer], { type: 'video/mp4' });
+}
+
+// ── Wire up ──────────────────────────────────────────────────────────────
+async function main() {
+  try {
+    anna = await AnnaAppRuntime.connect();
+    await anna.window.set_title({ title: 'Motion Lite' }).catch(() => undefined);
+  } catch {
+    say($('status'), 'Preview mode: open in Anna to make captions.');
+  }
+  renderStyles(document.querySelector('#pick .styles'));
+
+  $('file').onchange = async () => {
+    const f = $('file').files?.[0];
+    if (!f) return;
+    file = f;
+    try {
+      await loadVideo(f);
+      $('make').disabled = false;
+      say($('status'), `${f.name} · ${v.duration.toFixed(1)} s. Ready.`);
+    } catch (e) {
+      $('make').disabled = true;
+      say($('status'), e.message, true);
+    }
+  };
+  $('make').onclick = async () => {
+    $('make').disabled = true;
+    try {
+      const out = await makeCaptions();
+      project = { ...project, ...out };
+      $('title').value = project.title;
+      renderStyles($('styles2'));
+      renderCaps();
+      $('pick').hidden = true;
+      $('studio').hidden = false;
+      await seekTo(0.05);
+      save();
+      anna?.chat?.append_artifact?.({ artifact: { kind: 'app_event', summary: `Motion Lite: ${project.captions.length} captions for ${file.name}` } })?.catch?.(() => undefined);
+    } catch (e) {
+      const quota = /QUOTA/i.test(String(e?.code ?? e?.message));
+      say($('status'), quota ? 'Your Anna credits ran out; top up in Anna and try again.' : e.message, true);
+    } finally {
+      $('make').disabled = false;
+    }
+  };
+  $('title').oninput = () => {
+    project.title = cleanTitle($('title').value);
+    paint();
+  };
+  $('title').onchange = save;
+  $('play').onclick = () => {
+    if (v.paused) {
+      v.play();
+      $('play').textContent = 'Pause';
+      v.requestVideoFrameCallback(loop);
+    } else {
+      v.pause();
+      $('play').textContent = 'Play';
+    }
+  };
+  v.addEventListener('ended', () => ($('play').textContent = 'Play'));
+  $('seek').oninput = () => seekTo((Number($('seek').value) / 1000) * v.duration);
+  $('export').onclick = async () => {
+    $('export').disabled = true;
+    $('dl').hidden = true;
+    const t0 = performance.now();
+    try {
+      const blob = await exportMp4();
+      const a = $('dl');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${(file.name || 'video').replace(/\.[^.]+$/, '')}-captions.mp4`;
+      a.hidden = false;
+      say($('ex-status'), `Done in ${Math.round((performance.now() - t0) / 1000)} s · ${(blob.size / 1e6).toFixed(1)} MB.`);
+      window.__exported = { bytes: blob.size, seconds: (performance.now() - t0) / 1000 };
+    } catch (e) {
+      say($('ex-status'), `Export failed: ${e.message}`, true);
+      window.__exported = { error: e.message };
+    } finally {
+      $('export').disabled = false;
+      $('play').textContent = 'Play';
+    }
+  };
+  window.__ready = true;
+}
+
+main();
