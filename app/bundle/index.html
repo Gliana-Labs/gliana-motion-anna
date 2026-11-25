@@ -13,9 +13,10 @@
         <img class="mark" src="./motion.svg" alt="" />
         <div>
           <h1>Motion Lite</h1>
-          <p class="muted">Animated captions for talking videos</p>
+          <p class="muted">Animated captions for talking-head videos</p>
         </div>
       </div>
+      <span class="host" id="host"><span class="dot"></span><span id="host-text">Connecting to Anna…</span></span>
     </header>
 
     <section id="pick" class="pick">
@@ -23,7 +24,7 @@
         <canvas id="demo" width="540" height="960"></canvas>
       </div>
       <div class="pick-side">
-        <h2 class="lead">Turn a talking clip into a captioned Reel in about a minute.</h2>
+        <h2 class="lead">Turn a talking-head clip into a captioned Reel in about a minute.</h2>
         <label class="drop" for="file">
           <input type="file" id="file" accept="video/*" />
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
@@ -88,6 +89,6 @@
 
     <!-- Not `hidden`: Chrome on Android draws no frames for a hidden video, so requestVideoFrameCallback never fires. -->
     <video id="v" playsinline preload="auto" class="src"></video>
-    <footer class="foot">Transcription and captions use your Anna credits. Your video is rendered on your own device.</footer>
+    <footer class="foot">Connected to the Anna host: speech-to-text and the AI captions run through Anna on your Anna credits. Your video itself is rendered on your own device and never uploaded.</footer>
   </body>
 </html>

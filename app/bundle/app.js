@@ -67,6 +67,72 @@ function mono(buf) {
 }
 
 // ── Captions: speech → text → phrases ────────────────────────────────────
+
+/**
+ * One piece of speech, as text. Anna routes transcription to the user's own STT provider, and providers differ in
+ * what they accept: on 2026-11-26 the first real run (Alibaba DashScope behind Anna) refused inline WAV with
+ * "url error, please check url". So the piece is tried as WAV, then as M4A (AAC, encoded here with WebCodecs), then
+ * with each other STT model the catalogue lists; the first combination that works is kept for every later piece.
+ */
+async function transcribePiece(samples, seg, lang, stt) {
+  const attempts = [];
+  if (stt.working) attempts.push(stt.working);
+  for (const a of [{ format: 'wav' }, { format: 'm4a' }]) if (!attempts.some((x) => x.format === a.format && !x.model)) attempts.push(a);
+  if (!stt.models) {
+    const cat = await anna.llm.catalog({ serviceType: 'stt' }).catch(() => null);
+    stt.models = (cat?.models ?? []).map((m) => m.modelName).filter(Boolean);
+  }
+  for (const m of stt.models) for (const format of ['m4a', 'wav']) if (!attempts.some((x) => x.model === m && x.format === format)) attempts.push({ format, model: m });
+  let lastErr = null;
+  for (const a of attempts) {
+    try {
+      const b64 = a.format === 'm4a' ? await m4aBase64(samples, seg.from, seg.to) : toBase64(wavBytes(samples, STT_RATE, seg.from, seg.to));
+      if (!b64) continue; // this browser cannot encode AAC
+      const r = await anna.audio.transcribe({ audioBase64: b64, format: a.format, ...(a.model ? { model: a.model } : {}), ...(lang ? { language: lang } : {}) }, { timeoutMs: 120_000 });
+      stt.working = a;
+      return String(r?.text ?? '').trim();
+    } catch (e) {
+      if (/QUOTA/i.test(String(e?.code ?? e?.message))) throw e; // out of credits: retrying other models would not help
+      lastErr = e;
+      stt.tried.push(`${a.model ?? 'default'}/${a.format}`);
+    }
+  }
+  throw new Error(`Transcription failed (${stt.tried.slice(-4).join(', ')}): ${String(lastErr?.message ?? lastErr).slice(0, 200)}`);
+}
+
+/** A piece of mono 16 kHz audio as base64 M4A (AAC-LC), or null when this browser has no AAC encoder. */
+async function m4aBase64(samples, from, to) {
+  if (!('AudioEncoder' in window)) return null;
+  let rate = 16000;
+  let up = 1;
+  if (!(await AudioEncoder.isConfigSupported({ codec: 'mp4a.40.2', sampleRate: 16000, numberOfChannels: 1 }).catch(() => ({}))).supported) {
+    if (!(await AudioEncoder.isConfigSupported({ codec: 'mp4a.40.2', sampleRate: 48000, numberOfChannels: 1 }).catch(() => ({}))).supported) return null;
+    rate = 48000;
+    up = 3; // 16 kHz → 48 kHz, linear
+  }
+  const a = Math.max(0, Math.floor(from * STT_RATE));
+  const b = Math.min(samples.length, Math.ceil(to * STT_RATE));
+  const src = samples.subarray(a, b);
+  const pcm = new Float32Array(src.length * up);
+  for (let i = 0; i < pcm.length; i++) {
+    const x = i / up;
+    const k = Math.floor(x);
+    const f = x - k;
+    pcm[i] = (src[k] ?? 0) * (1 - f) + (src[k + 1] ?? src[k] ?? 0) * f;
+  }
+  const muxer = new Muxer({ target: new ArrayBufferTarget(), audio: { codec: 'aac', numberOfChannels: 1, sampleRate: rate }, fastStart: 'in-memory', firstTimestampBehavior: 'offset' });
+  const enc = new AudioEncoder({ output: (chunk, meta) => muxer.addAudioChunk(chunk, meta), error: () => undefined });
+  enc.configure({ codec: 'mp4a.40.2', sampleRate: rate, numberOfChannels: 1, bitrate: 64_000 });
+  for (let s = 0; s < pcm.length; s += 4096) {
+    const n = Math.min(4096, pcm.length - s);
+    const ad = new AudioData({ format: 'f32-planar', sampleRate: rate, numberOfFrames: n, numberOfChannels: 1, timestamp: Math.round((s / rate) * 1e6), data: pcm.slice(s, s + n) });
+    enc.encode(ad);
+    ad.close();
+  }
+  await enc.flush();
+  muxer.finalize();
+  return toBase64(new Uint8Array(muxer.target.buffer));
+}
 async function makeCaptions() {
   if (!anna) throw new Error('Open Motion Lite inside Anna to make captions.');
   say($('status'), 'Listening for speech…');
@@ -82,16 +148,21 @@ async function makeCaptions() {
   const lang = $('lang').value || undefined;
   let done = 0;
   const texts = new Array(segs.length).fill('');
-  const queue = segs.map((s, i) => i);
+  const stt = { working: null, models: null, tried: [] };
+  const step = () => {
+    done++;
+    say($('status'), `Transcribing ${done} of ${segs.length}…`);
+    progress('mk', 0.1 + (0.7 * done) / segs.length);
+  };
+  // The first piece finds a format/model the user's STT provider accepts; the rest reuse it, three at a time.
+  texts[0] = await transcribePiece(samples, segs[0], lang, stt);
+  step();
+  const queue = segs.map((s, i) => i).slice(1);
   const worker = async () => {
     while (queue.length) {
       const i = queue.shift();
-      const b64 = toBase64(wavBytes(samples, STT_RATE, segs[i].from, segs[i].to));
-      const r = await anna.audio.transcribe({ audioBase64: b64, format: 'wav', ...(lang ? { language: lang } : {}) }, { timeoutMs: 120_000 });
-      texts[i] = String(r?.text ?? '').trim();
-      done++;
-      say($('status'), `Transcribing ${done} of ${segs.length}…`);
-      progress('mk', 0.1 + (0.7 * done) / segs.length);
+      texts[i] = await transcribePiece(samples, segs[i], lang, stt);
+      step();
     }
   };
   await Promise.all([worker(), worker(), worker()]);
@@ -292,7 +363,11 @@ async function main() {
   try {
     anna = await AnnaAppRuntime.connect();
     await anna.window.set_title({ title: 'Motion Lite' }).catch(() => undefined);
+    $('host').classList.add('on');
+    $('host-text').textContent = 'Connected to Anna';
+    $('host').title = 'Speech-to-text and AI captions run through the Anna host on your Anna credits';
   } catch {
+    $('host-text').textContent = 'Preview (not in Anna)';
     say($('status'), 'Preview mode: open in Anna to make captions.');
   }
   // The caption face must be loaded before the first frame is drawn, or the canvas falls back for the whole export.

@@ -29,6 +29,9 @@ a { color: var(--acc); }
 .top { display: flex; align-items: center; justify-content: space-between; }
 .brand { display: flex; align-items: center; gap: 12px; }
 .mark { width: 36px; height: 36px; border-radius: 9px; }
+.host { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; padding: 6px 12px; border-radius: 999px; background: var(--tile); box-shadow: inset 0 0 0 1px var(--line); }
+.host .dot { width: 8px; height: 8px; border-radius: 50%; background: #b8b6ad; }
+.host.on .dot { background: #22c55e; box-shadow: 0 0 0 3px color-mix(in srgb, #22c55e 25%, transparent); }
 .card { background: var(--tile); border-radius: var(--r); padding: 16px; display: grid; gap: 12px; }
 
 /* ── Pick ─────────────────────────────────────────────────────────────── */
