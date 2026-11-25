@@ -1,0 +1,4 @@
+node_modules/
+test-media/*.mp4
+test-media/*.jpg
+.anna/

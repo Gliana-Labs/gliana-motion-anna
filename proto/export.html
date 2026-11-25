@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Motion Lite: in-browser export test</title>
+    <style>
+      body { font: 15px/1.5 system-ui, sans-serif; margin: 24px; display: grid; gap: 12px; max-width: 760px; }
+      canvas { max-width: 270px; border-radius: 8px; background: #000; }
+      pre { background: #f3f3f3; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>In-browser export test</h1>
+    <p>Pick a video. The page draws every frame with captions onto a canvas, encodes it with WebCodecs, muxes MP4 with the original audio, and reports the time.</p>
+    <input type="file" id="file" accept="video/*" />
+    <button id="go" disabled>Export</button>
+    <canvas id="cv"></canvas>
+    <pre id="log">Waiting for a video…</pre>
+    <a id="dl" hidden>Download MP4</a>
+    <video id="v" muted playsinline preload="auto" hidden></video>
+    <script type="module" src="./export.js"></script>
+  </body>
+</html>
