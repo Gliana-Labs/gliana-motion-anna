@@ -10,54 +10,77 @@
   <body>
     <header class="top">
       <div class="brand">
-        <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="7" width="20" height="18" rx="4" fill="currentColor" /><path d="M23 13l6-4v14l-6-4z" fill="currentColor" /></svg>
+        <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="6" width="22" height="20" rx="5" fill="currentColor" /><rect x="6" y="17" width="14" height="3" rx="1.5" fill="#fff" /><rect x="8" y="21.5" width="9" height="2.5" rx="1.25" fill="#fff" opacity=".7" /><path d="M24 13l6-3.5v13L24 19z" fill="currentColor" /></svg>
         <div>
           <h1>Motion Lite</h1>
-          <p class="muted">Auto captions for talking videos</p>
+          <p class="muted">Animated captions for talking videos</p>
         </div>
       </div>
     </header>
 
-    <section id="pick" class="card">
-      <label class="drop" for="file">
-        <input type="file" id="file" accept="video/*" />
-        <strong>Choose a video</strong>
-        <span class="muted">A talking video up to 60 seconds. It stays on your device; only its speech is sent for transcription.</span>
-      </label>
-      <div class="row opts">
-        <label class="inline">Language
+    <section id="pick" class="pick">
+      <div class="demo-wrap" aria-hidden="true">
+        <canvas id="demo" width="540" height="960"></canvas>
+      </div>
+      <div class="pick-side">
+        <h2 class="lead">Turn a talking clip into a captioned Reel in about a minute.</h2>
+        <label class="drop" for="file">
+          <input type="file" id="file" accept="video/*" />
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          <strong id="drop-title">Choose a video</strong>
+          <span class="muted" id="drop-sub">Up to 60 seconds. It stays on your device; only the speech is sent for transcription.</span>
+        </label>
+        <div class="field">
+          <span class="label">Look</span>
+          <div class="swatches" id="swatches" role="radiogroup" aria-label="Caption look"></div>
+        </div>
+        <label class="field">
+          <span class="label">Spoken language</span>
           <select id="lang">
-            <option value="">Auto</option>
-            <option value="id">Bahasa Indonesia</option>
+            <option value="">Detect automatically</option>
             <option value="en">English</option>
+            <option value="id">Indonesian</option>
+            <option value="es">Spanish</option>
+            <option value="pt">Portuguese</option>
+            <option value="hi">Hindi</option>
           </select>
         </label>
-        <div class="styles" role="radiogroup" aria-label="Caption style">
-          <button type="button" class="sty" data-style="pop" aria-checked="true" role="radio">Pop</button>
-          <button type="button" class="sty" data-style="karaoke" aria-checked="false" role="radio">Karaoke</button>
-          <button type="button" class="sty" data-style="duo" aria-checked="false" role="radio">Duo</button>
-        </div>
+        <button type="button" id="make" class="primary big" disabled>Make captions</button>
+        <div class="progress" id="prog" hidden><div class="bar" id="prog-bar"></div></div>
+        <p id="status" class="status" role="status"></p>
       </div>
-      <button type="button" id="make" class="primary" disabled>Make captions</button>
-      <p id="status" class="status" role="status"></p>
     </section>
 
     <section id="studio" class="studio" hidden>
       <div class="stage">
-        <canvas id="cv" aria-label="Preview"></canvas>
-        <div class="row controls">
-          <button type="button" id="play" class="primary">Play</button>
+        <div class="screen"><canvas id="cv" aria-label="Preview"></canvas></div>
+        <div class="controls">
+          <button type="button" id="play" class="round" aria-label="Play">
+            <svg id="play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor" /></svg>
+          </button>
           <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Position" />
+          <span class="time" id="time">0:00</span>
         </div>
       </div>
-      <div class="side card">
-        <label class="inline title-row">Headline <input id="title" maxlength="60" /></label>
-        <div class="styles" role="radiogroup" aria-label="Caption style" id="styles2"></div>
-        <h2>Captions</h2>
-        <ol id="caps" class="caps"></ol>
-        <button type="button" id="export" class="primary">Export MP4</button>
-        <p id="ex-status" class="status" role="status"></p>
-        <a id="dl" class="primary dl" hidden>Download MP4</a>
+      <div class="side">
+        <div class="card">
+          <label class="field"><span class="label">Headline</span><input id="title" maxlength="60" /></label>
+          <div class="field">
+            <span class="label">Look</span>
+            <div class="swatches" id="swatches2" role="radiogroup" aria-label="Caption look"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="caps-head"><h2>Captions</h2><span class="muted small">Tap a time to jump there</span></div>
+          <ol id="caps" class="caps"></ol>
+        </div>
+        <div class="card export">
+          <button type="button" id="export" class="primary big">Export MP4</button>
+          <div class="progress" id="ex-prog" hidden><div class="bar" id="ex-bar"></div></div>
+          <p id="ex-status" class="status" role="status"></p>
+          <a id="dl" class="primary big dl" hidden>Download MP4</a>
+          <button type="button" id="again" class="ghost">Start a new video</button>
+        </div>
         <p class="muted small">Want cuts, motion graphics and styles copied from other videos? Use the full editor at
           <a href="https://motion.glianalabs.com" target="_blank" rel="noopener">motion.glianalabs.com</a>.</p>
       </div>
@@ -65,6 +88,6 @@
 
     <!-- Not `hidden`: Chrome on Android draws no frames for a hidden video, so requestVideoFrameCallback never fires. -->
     <video id="v" playsinline preload="auto" class="src"></video>
-    <footer class="foot">Transcription and AI captions use your Anna credits. The video is rendered and exported on your own device.</footer>
+    <footer class="foot">Transcription and captions use your Anna credits. Your video is rendered on your own device.</footer>
   </body>
 </html>

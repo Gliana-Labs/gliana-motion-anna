@@ -8,7 +8,7 @@
 import { AnnaAppRuntime } from '/static/anna-apps/_sdk/latest/index.js';
 import { Muxer, ArrayBufferTarget } from './vendor/mp4-muxer.mjs';
 import { MAX_SECONDS, STT_RATE, PLAN_PROMPT, speechSegments, wavBytes, toBase64, timeCaptions, captionAt, cleanTitle, extractJson } from './logic.js';
-import { STYLES, drawOverlay } from './render.js';
+import { STYLES, drawOverlay, drawSample } from './render.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -25,6 +25,13 @@ function say(el, msg, err = false) {
   el.classList.toggle('err', err);
 }
 const store = (k, v) => anna?.storage.set({ key: k, value: v }).catch(() => undefined);
+function progress(which, frac) {
+  const wrap = $(which === 'ex' ? 'ex-prog' : 'prog');
+  const bar = $(which === 'ex' ? 'ex-bar' : 'prog-bar');
+  wrap.hidden = frac == null;
+  if (frac != null) bar.style.width = `${Math.round(Math.min(1, Math.max(0, frac)) * 100)}%`;
+}
+const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 // ── Video ────────────────────────────────────────────────────────────────
 const v = $('v');
@@ -63,6 +70,7 @@ function mono(buf) {
 async function makeCaptions() {
   if (!anna) throw new Error('Open Motion Lite inside Anna to make captions.');
   say($('status'), 'Listening for speech…');
+  progress('mk', 0.05);
   let samples;
   try {
     samples = mono(await decodeAudio(file, STT_RATE));
@@ -82,7 +90,8 @@ async function makeCaptions() {
       const r = await anna.audio.transcribe({ audioBase64: b64, format: 'wav', ...(lang ? { language: lang } : {}) }, { timeoutMs: 120_000 });
       texts[i] = String(r?.text ?? '').trim();
       done++;
-      say($('status'), `Transcribing ${done}/${segs.length}…`);
+      say($('status'), `Transcribing ${done} of ${segs.length}…`);
+      progress('mk', 0.1 + (0.7 * done) / segs.length);
     }
   };
   await Promise.all([worker(), worker(), worker()]);
@@ -90,6 +99,7 @@ async function makeCaptions() {
   if (!segments.length) throw new Error('The speech could not be transcribed. Try a clearer recording.');
 
   say($('status'), 'Writing captions…');
+  progress('mk', 0.88);
   let plan = null;
   try {
     const r = await anna.llm.complete({
@@ -113,6 +123,7 @@ function paint() {
   g.drawImage(v, 0, 0, size.w, size.h);
   drawOverlay(g, size.w, size.h, v.currentTime, project);
   $('seek').value = String(Math.round((v.currentTime / v.duration) * 1000));
+  $('time').textContent = clock(v.currentTime);
   document.querySelectorAll('#caps li').forEach((li) => li.classList.toggle('now', Number(li.dataset.from) <= v.currentTime && v.currentTime < Number(li.dataset.to)));
 }
 function loop() {
@@ -125,24 +136,40 @@ async function seekTo(t) {
   paint();
 }
 
-function renderStyles(el) {
+/** Style picker: each choice is a small live render of that look, drawn by the same code as the export. */
+function renderSwatches(el) {
   el.innerHTML = Object.entries(STYLES)
-    .map(([id, s]) => `<button type="button" class="sty" role="radio" data-style="${id}" aria-checked="${id === project.style}">${s.name}</button>`)
+    .map(([id, s]) => `<button type="button" class="sw" role="radio" data-style="${id}" aria-checked="${id === project.style}" aria-label="${s.name}"><canvas width="240" height="320"></canvas><span>${s.name}</span></button>`)
     .join('');
-  el.querySelectorAll('.sty').forEach((b) =>
-    (b.onclick = () => {
+  el.querySelectorAll('.sw').forEach((b) => {
+    drawSample(b.querySelector('canvas').getContext('2d'), 240, 320, b.dataset.style, b.dataset.style === 'karaoke' ? 0.5 : 1.1);
+    b.onclick = () => {
       project.style = b.dataset.style;
-      document.querySelectorAll('.sty').forEach((x) => x.setAttribute('aria-checked', String(x.dataset.style === project.style)));
-      paint();
+      document.querySelectorAll('.sw').forEach((x) => x.setAttribute('aria-checked', String(x.dataset.style === project.style)));
+      if (!$('studio').hidden) paint();
       save();
-    }),
-  );
+    };
+  });
+}
+
+/** The upload screen's demo: the chosen look, looping over a sample frame. */
+function demo() {
+  const c = $('demo');
+  const dg = c.getContext('2d');
+  const t0 = performance.now();
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const tick = (now) => {
+    if ($('pick').hidden) return;
+    drawSample(dg, c.width, c.height, project.style, reduce ? 1.1 : ((now - t0) / 1000) % 4.6);
+    if (!reduce) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
 }
 
 function renderCaps() {
   const fmt = (t) => `${Math.floor(t / 60)}:${String((t % 60).toFixed(1)).padStart(4, '0')}`;
   $('caps').innerHTML = project.captions
-    .map((c, i) => `<li data-i="${i}" data-from="${c.from}" data-to="${c.to}"><span class="t">${fmt(c.from)}</span><input value="${esc(c.text)}" aria-label="Caption ${i + 1}" /><input value="${esc(c.hi)}" placeholder="highlight" aria-label="Highlight word ${i + 1}" /></li>`)
+    .map((c, i) => `<li data-i="${i}" data-from="${c.from}" data-to="${c.to}"><button type="button" class="t" aria-label="Jump to ${fmt(c.from)}">${fmt(c.from)}</button><input value="${esc(c.text)}" aria-label="Caption ${i + 1}" /><input class="hi" value="${esc(c.hi)}" placeholder="highlight" aria-label="Highlight word ${i + 1}" /></li>`)
     .join('');
   $('caps').querySelectorAll('li').forEach((li) => {
     const c = project.captions[Number(li.dataset.i)];
@@ -232,6 +259,7 @@ async function exportMp4() {
         venc.encode(frame, { keyFrame: key });
         frame.close();
       }
+      progress('ex', t / v.duration);
       say($('ex-status'), `Rendering ${Math.min(99, Math.round((t / v.duration) * 100))}%… keep this window open.`);
       if (!v.ended) v.requestVideoFrameCallback(onFrame);
     };
@@ -267,7 +295,10 @@ async function main() {
   } catch {
     say($('status'), 'Preview mode: open in Anna to make captions.');
   }
-  renderStyles(document.querySelector('#pick .styles'));
+  // The caption face must be loaded before the first frame is drawn, or the canvas falls back for the whole export.
+  await Promise.all([document.fonts.load('800 40px Jakarta'), document.fonts.load('700 40px Jakarta')]).catch(() => undefined);
+  renderSwatches($('swatches'));
+  demo();
 
   $('file').onchange = async () => {
     const f = $('file').files?.[0];
@@ -276,7 +307,10 @@ async function main() {
     try {
       await loadVideo(f);
       $('make').disabled = false;
-      say($('status'), `${f.name} · ${v.duration.toFixed(1)} s. Ready.`);
+      document.querySelector('.drop').classList.add('has');
+      $('drop-title').textContent = f.name.length > 34 ? `${f.name.slice(0, 31)}…` : f.name;
+      $('drop-sub').textContent = `${v.duration.toFixed(1)} s · ${size.w}×${size.h} · tap to choose another`;
+      say($('status'), '');
     } catch (e) {
       $('make').disabled = true;
       say($('status'), e.message, true);
@@ -288,7 +322,7 @@ async function main() {
       const out = await makeCaptions();
       project = { ...project, ...out };
       $('title').value = project.title;
-      renderStyles($('styles2'));
+      renderSwatches($('swatches2'));
       renderCaps();
       $('pick').hidden = true;
       $('studio').hidden = false;
@@ -300,6 +334,7 @@ async function main() {
       say($('status'), quota ? 'Your Anna credits ran out; top up in Anna and try again.' : e.message, true);
     } finally {
       $('make').disabled = false;
+      progress('mk', null);
     }
   };
   $('title').oninput = () => {
@@ -307,17 +342,31 @@ async function main() {
     paint();
   };
   $('title').onchange = save;
+  const PLAY = '<path d="M8 5v14l11-7z" fill="currentColor" />';
+  const PAUSE = '<path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor" />';
+  const icon = (playing) => {
+    $('play-icon').innerHTML = playing ? PAUSE : PLAY;
+    $('play').setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  };
   $('play').onclick = () => {
     if (v.paused) {
       v.play();
-      $('play').textContent = 'Pause';
+      icon(true);
       v.requestVideoFrameCallback(loop);
     } else {
       v.pause();
-      $('play').textContent = 'Play';
+      icon(false);
     }
   };
-  v.addEventListener('ended', () => ($('play').textContent = 'Play'));
+  v.addEventListener('ended', () => icon(false));
+  $('again').onclick = () => {
+    v.pause();
+    $('studio').hidden = true;
+    $('pick').hidden = false;
+    $('dl').hidden = true;
+    $('file').value = '';
+    demo();
+  };
   $('seek').oninput = () => seekTo((Number($('seek').value) / 1000) * v.duration);
   $('export').onclick = async () => {
     $('export').disabled = true;
@@ -336,7 +385,8 @@ async function main() {
       window.__exported = { error: e.message };
     } finally {
       $('export').disabled = false;
-      $('play').textContent = 'Play';
+      progress('ex', null);
+      icon(false);
     }
   };
   window.__ready = true;

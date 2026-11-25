@@ -12,6 +12,7 @@
   "type": "module",
   "devDependencies": {
     "@anna-ai/cli": "^0.1.68",
+    "@fontsource/plus-jakarta-sans": "^5.3.0",
     "mp4-muxer": "^5.2.2"
   }
 }
