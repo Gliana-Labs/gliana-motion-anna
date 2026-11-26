@@ -17,9 +17,9 @@ Slug `motion-lite`, bundle-only (no executa, no external origins).
 - **Export:** play mode (below), 3.5 Mbps H.264 (else VP9/AV1) + AAC (else Opus).
 - **Extras (v0.2.0):** background music via
   `anna.music.generateAwait` (catalog `music_gen`, `durationSec` only for range models), mixed at export by `logic.mixMusic`
-  (looped, faded, ducked to 40% under the voice); up to 3 B-roll cards via `anna.image.generate` (`logic.cleanBroll`); a post
-  caption from the same plan call. Anna media links are fetched into `blob:` URLs so the export canvas stays untainted; if
-  the storage refuses a CORS read, the app says so and names the host (preview only, not in the export).
+  (looped, faded, ducked to 40% under the voice); a post caption from the same plan call. The Anna music link is fetched
+  into a `blob:` URL so it can be decoded for the mix; if the storage refuses a CORS read, the app says so and names the
+  host (preview only, not in the export). Punch-in zoom and B-roll pictures were tried in v0.2 and removed.
 
 Harness run (mocked transcribe + LLM, real speech detection and export), 14 s test video with three speech bursts:
 three pieces found at 0.5 / 4.2 / 8.9 s, 6 captions, exported in 14 s, valid MP4 (H.264 + Opus, 419 frames).

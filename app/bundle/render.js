@@ -114,49 +114,9 @@ export function drawBase(g, src, w, h) {
   g.drawImage(src, 0, 0, w, h);
 }
 
-/** A B-roll picture as a card between the headline and the captions: pops in, holds, fades out. */
-function drawBroll(g, w, h, t, b) {
-  const img = b.img;
-  if (!img || !img.naturalWidth) return;
-  const k = ease((t - b.from) / 0.25);
-  const out = Math.min(1, Math.max(0, (b.to - t) / 0.2));
-  const cw = w * 0.6;
-  const ch = Math.min(h * 0.42, cw * 1.2);
-  const cx = w / 2;
-  const cy = h * 0.42;
-  const s = 0.85 + 0.15 * k;
-  g.save();
-  g.globalAlpha = Math.min(k, out);
-  g.translate(cx, cy);
-  g.scale(s, s);
-  g.shadowColor = 'rgba(0,0,0,0.45)';
-  g.shadowBlur = w * 0.04;
-  g.shadowOffsetY = w * 0.012;
-  const r = w * 0.04;
-  const bw = w * 0.012;
-  g.fillStyle = '#ffffff';
-  g.beginPath();
-  g.roundRect(-cw / 2 - bw, -ch / 2 - bw, cw + bw * 2, ch + bw * 2, r + bw);
-  g.fill();
-  g.shadowColor = 'transparent';
-  g.beginPath();
-  g.roundRect(-cw / 2, -ch / 2, cw, ch, r);
-  g.clip();
-  // Cover-crop the picture into the card.
-  const ir = img.naturalWidth / img.naturalHeight;
-  const cr = cw / ch;
-  let sw = img.naturalWidth;
-  let sh = img.naturalHeight;
-  if (ir > cr) sw = sh * cr;
-  else sh = sw / cr;
-  g.drawImage(img, (img.naturalWidth - sw) / 2, (img.naturalHeight - sh) / 2, sw, sh, -cw / 2, -ch / 2, cw, ch);
-  g.restore();
-}
-
 /** Draw the frame's overlays on top of an already-drawn video frame. */
 export function drawOverlay(g, w, h, t, project) {
   const st = STYLES[project.style] ?? STYLES.pop;
-  for (const b of project.broll ?? []) if (t >= b.from && t < b.to) drawBroll(g, w, h, t, b);
   if (project.title && t < st.titleFor) drawTitle(g, w, h, project.title, st, t);
   const cap = captionAt(project.captions, t);
   if (cap) drawCaption(g, w, h, t, cap, st, project.style);

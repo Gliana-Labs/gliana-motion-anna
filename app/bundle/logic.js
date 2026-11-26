@@ -90,13 +90,11 @@ export const PLAN_PROMPT = `You edit short talking-head videos into punchy socia
 Return ONLY JSON:
 {"title":"<hook headline, max 6 words, same language as the speech>",
  "segments":[{"i":<segment number>,"phrases":[{"text":"<2-5 words>","hi":"<one word from that phrase to highlight, or empty>"}]}],
- "broll":[{"i":<segment number>,"prompt":"<a vivid, concrete image prompt in English for that moment, no text in the image>"}],
  "mood":"<background music mood in English, e.g. calm lo-fi, upbeat pop, cinematic>",
  "post":"<a social media caption in the speech's language, max 200 characters, then 3-6 hashtags>"}
 Rules:
 - Split each segment's text into phrases of 2 to 5 words, in order, using the segment's own words (fix obvious transcription typos only).
 - Highlight the single most important word of a phrase (a number, a key noun or verb); leave "hi" empty for filler phrases.
-- broll: 0 to 3 moments where a picture helps (a concrete thing, place or action is mentioned). Skip abstract talk.
 - Keep the speech's language for title, phrases and post. No emoji in phrases or title.`;
 
 /** Fallback when the AI's phrases do not fit a segment: 3-word phrases, highlight the longest word. */
@@ -187,22 +185,6 @@ export function extractJson(text) {
   const b = s.lastIndexOf('}');
   if (a < 0 || b <= a) throw new Error('no_json');
   return JSON.parse(s.slice(a, b + 1));
-}
-
-/** B-roll moments: at most 3, each at its segment's start for up to 2.2 s, never overlapping. */
-export function cleanBroll(plan, segments) {
-  const out = [];
-  for (const b of Array.isArray(plan?.broll) ? plan.broll : []) {
-    const seg = segments[b?.i];
-    const prompt = String(b?.prompt ?? '').trim().slice(0, 300);
-    if (!seg || !prompt) continue;
-    const from = seg.from;
-    const to = Math.min(seg.to, from + 2.2);
-    if (to - from < 0.8 || out.some((x) => from < x.to && to > x.from)) continue;
-    out.push({ from: round3(from), to: round3(to), prompt });
-    if (out.length === 3) break;
-  }
-  return out;
 }
 
 export function cleanPost(s) {

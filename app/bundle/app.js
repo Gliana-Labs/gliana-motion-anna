@@ -7,7 +7,7 @@
 //            original audio by mp4-muxer. Measured on a mid-range phone (Dimensity 7300): 60 s in about 67 s.
 import { AnnaAppRuntime } from '/static/anna-apps/_sdk/latest/index.js';
 import { Muxer, ArrayBufferTarget } from './vendor/mp4-muxer.mjs';
-import { MAX_SECONDS, STT_RATE, PLAN_PROMPT, speechSegments, wavBytes, toBase64, timeCaptions, captionAt, cleanTitle, extractJson, cleanBroll, cleanPost, mixMusic } from './logic.js';
+import { MAX_SECONDS, STT_RATE, PLAN_PROMPT, speechSegments, wavBytes, toBase64, timeCaptions, captionAt, cleanTitle, extractJson, cleanPost, mixMusic } from './logic.js';
 import { STYLES, drawOverlay, drawSample, drawBase } from './render.js';
 
 const $ = (id) => document.getElementById(id);
@@ -18,7 +18,7 @@ const MAX_W = 1080;
 
 let anna = null;
 let file = null;
-let project = { style: 'pop', title: '', captions: [], broll: [], mood: '', post: '', music: null };
+let project = { style: 'pop', title: '', captions: [], mood: '', post: '', music: null };
 let size = { w: 720, h: 1280 };
 
 function say(el, msg, err = false) {
@@ -237,7 +237,7 @@ async function planCaptions(segments) {
     plan = null; // captions still come out, phrased by the fallback
   }
   // Segment numbers in the prompt index the filtered list.
-  return { title: cleanTitle(plan?.title), captions: timeCaptions(segments, plan), broll: cleanBroll(plan, segments), mood: String(plan?.mood ?? '').trim().slice(0, 80), post: cleanPost(plan?.post) };
+  return { title: cleanTitle(plan?.title), captions: timeCaptions(segments, plan), mood: String(plan?.mood ?? '').trim().slice(0, 80), post: cleanPost(plan?.post) };
 }
 
 // ── Preview ──────────────────────────────────────────────────────────────
@@ -294,12 +294,11 @@ const save = () =>
     style: project.style,
     title: project.title,
     captions: project.captions,
-    broll: project.broll.map(({ from, to, prompt }) => ({ from, to, prompt })),
     mood: project.mood,
     post: project.post,
   });
 
-// ── Extras on Anna: music, B-roll pictures ───────────────────────────────
+// ── Extras on Anna: music ───────────────────────────────
 /**
  * Bring an Anna media link (presigned R2) into the window as a blob:. Only a blob (or a CORS-readable file) can be drawn
  * into the export canvas or decoded for the mix; a plain cross-origin <img> would taint the canvas and break export.
@@ -359,60 +358,6 @@ async function addMusic() {
   } catch (e) {
     const quota = /QUOTA/i.test(String(e?.code ?? e?.message));
     st.textContent = quota ? 'Your Anna credits ran out.' : `Music failed: ${String(e?.message ?? e).slice(0, 160)}`;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-async function addBroll() {
-  const btn = $('add-broll');
-  const st = $('broll-status');
-  st.classList.remove('done');
-  if (!project.broll.length) {
-    st.textContent = 'The AI found no concrete moment to picture in this video.';
-    return;
-  }
-  btn.disabled = true;
-  let ok = 0;
-  let blocked = 0;
-  let blockedHost = '';
-  try {
-    st.textContent = `Making ${project.broll.length} picture${project.broll.length > 1 ? 's' : ''}…`;
-    await Promise.all(
-      project.broll.map(async (b) => {
-        try {
-          const r = await anna.image.generate({ prompt: `${b.prompt}, photographic, vivid, no text`, size: '1024x1536' }, { timeoutMs: 180_000 });
-          const url = r?.images?.[0]?.url;
-          if (!url) return;
-          let asset;
-          try {
-            asset = await loadAsset(url);
-          } catch {
-            blocked++;
-            blockedHost = new URL(url).host;
-            return;
-          }
-          const img = new Image();
-          img.src = asset.url;
-          await img.decode();
-          b.img = img;
-          b.asset = asset;
-          ok++;
-        } catch (e) {
-          if (/QUOTA/i.test(String(e?.code ?? e?.message))) throw e;
-        }
-      }),
-    );
-    st.textContent = ok
-      ? `${ok} picture${ok > 1 ? 's' : ''} added at the moments you mention.${blocked ? ` ${blocked} could not be read here.` : ''}`
-      : blocked
-        ? `Pictures were made, but this window may not read them (${blockedHost}), so they cannot go into the export.`
-        : 'No pictures came back. Try again.';
-    if (ok) st.classList.add('done');
-    btn.textContent = 'New pictures';
-    paint();
-  } catch (e) {
-    st.textContent = /QUOTA/i.test(String(e?.code ?? e?.message)) ? 'Your Anna credits ran out.' : `Pictures failed: ${String(e?.message ?? e).slice(0, 160)}`;
   } finally {
     btn.disabled = false;
   }
@@ -557,8 +502,6 @@ async function main() {
       $('music').removeAttribute('src');
       $('music-status').textContent = "AI music in the video's mood, under your voice. Uses Anna credits.";
       $('add-music').textContent = 'Add background music';
-      $('add-broll').textContent = project.broll.length ? `Add ${project.broll.length} B-roll picture${project.broll.length > 1 ? 's' : ''}` : 'Add B-roll pictures';
-      $('broll-status').textContent = project.broll.length ? `For: ${project.broll.map((b) => b.prompt.split(',')[0]).join(' · ').slice(0, 140)}. Uses Anna credits.` : 'The AI found no concrete moment to picture.';
       $('post').value = project.post;
       $('post-card').hidden = !project.post;
       renderSwatches($('swatches2'));
@@ -582,7 +525,6 @@ async function main() {
     $('play').setAttribute('aria-label', playing ? 'Pause' : 'Play');
   };
   $('add-music').onclick = addMusic;
-  $('add-broll').onclick = addBroll;
   $('post').onchange = () => {
     project.post = $('post').value;
     save();

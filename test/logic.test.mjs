@@ -67,14 +67,12 @@ test('with real word times (Whisper), each phrase spans its own words', () => {
   assert.equal(fb.length, 2);
 });
 
-import { cleanBroll, mixMusic, cleanPost } from '../app/bundle/logic.js';
+import { mixMusic, cleanPost } from '../app/bundle/logic.js';
 
-test('b-roll: at most 3, inside its segment, no overlaps, no empty prompts', () => {
-  const segs = [{ from: 0, to: 3 }, { from: 3, to: 3.5 }, { from: 4, to: 9 }, { from: 9, to: 12 }, { from: 12, to: 15 }];
-  const b = cleanBroll({ broll: [{ i: 0, prompt: 'coffee shop' }, { i: 1, prompt: 'too short' }, { i: 2, prompt: '' }, { i: 3, prompt: 'money' }, { i: 4, prompt: 'city' }, { i: 0, prompt: 'dup' }, { i: 9, prompt: 'nope' }] }, segs);
-  assert.deepEqual(b.map((x) => [x.from, x.to, x.prompt]), [[0, 2.2, 'coffee shop'], [9, 11.2, 'money'], [12, 14.2, 'city']]);
+test('post caption is trimmed', () => {
   assert.equal(cleanPost('  hi  \n #a '), 'hi\n #a');
 });
+
 
 test('music is looped, faded, ducked under loud voice, and never clips', () => {
   const rate = 1000;
