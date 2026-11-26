@@ -67,7 +67,7 @@ test('with real word times (Whisper), each phrase spans its own words', () => {
   assert.equal(fb.length, 2);
 });
 
-import { cleanBroll, zoomAt, mixMusic, cleanPost } from '../app/bundle/logic.js';
+import { cleanBroll, zoomAt, mixMusic, cleanPost, punchTimes } from '../app/bundle/logic.js';
 
 test('b-roll: at most 3, inside its segment, no overlaps, no empty prompts', () => {
   const segs = [{ from: 0, to: 3 }, { from: 3, to: 3.5 }, { from: 4, to: 9 }, { from: 9, to: 12 }, { from: 12, to: 15 }];
@@ -94,4 +94,11 @@ test('music is looped, faded, ducked under loud voice, and never clips', () => {
   assert.ok(Math.abs(out[2500] - (0.5 + 0.2 * 0.4)) < 1e-6); // ducked under the voice
   assert.ok(out.every((x) => x <= 1 && x >= -1));
   assert.ok(Math.abs(out[3999]) < 0.01); // faded out
+});
+
+test('punch-ins are spaced at least 4 s apart, not on every highlight', () => {
+  const cap = (from, hi) => ({ from, to: from + 1, hi, words: [{ w: hi, from: from + 0.2, to: from + 0.6 }] });
+  const caps = [cap(0, 'a'), cap(1, 'b'), cap(2, 'c'), cap(4.5, 'd'), cap(6, 'e'), cap(9, 'f')];
+  assert.deepEqual(punchTimes(caps), [0.2, 4.7, 9.2]);
+  assert.equal(zoomAt(caps, 1.425), 1); // 'b' has a highlight but no punch
 });

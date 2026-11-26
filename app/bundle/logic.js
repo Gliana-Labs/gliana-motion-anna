@@ -209,18 +209,31 @@ export function cleanPost(s) {
   return String(s ?? '').replace(/\s+\n/g, '\n').trim().slice(0, 400);
 }
 
-/** Punch-in zoom: 1 + up to 8% around each highlighted word, easing in and out over 0.45 s. */
-export function zoomAt(captions, t) {
-  let z = 1;
+/** Gap between punch-ins: on every highlight (about one a second) it read as the video always zooming. */
+export const PUNCH_GAP = 4;
+
+/** The highlight words that get a punch-in: the first one, then the next at least PUNCH_GAP seconds later, and so on. */
+export function punchTimes(captions) {
+  const out = [];
+  let last = -Infinity;
   for (const c of captions) {
-    if (!c.hi || t < c.from - 0.5 || t > c.to + 0.5) continue;
+    if (!c.hi) continue;
     const key = c.hi.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
     const w = (c.words ?? []).find((x) => x.w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '') === key);
-    if (!w) continue;
-    const a = (t - w.from) / 0.45;
-    if (a >= 0 && a <= 1) z = Math.max(z, 1 + 0.08 * Math.sin(a * Math.PI));
+    if (!w || w.from - last < PUNCH_GAP) continue;
+    out.push(w.from);
+    last = w.from;
   }
-  return z;
+  return out;
+}
+
+/** Punch-in zoom: 1 + up to 8% at each punch time, easing in and out over 0.45 s. */
+export function zoomAt(captions, t) {
+  for (const at of punchTimes(captions)) {
+    const a = (t - at) / 0.45;
+    if (a >= 0 && a <= 1) return 1 + 0.08 * Math.sin(a * Math.PI);
+  }
+  return 1;
 }
 
 /**
