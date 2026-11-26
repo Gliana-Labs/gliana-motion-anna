@@ -130,6 +130,23 @@ export function timeCaptions(segments, plan) {
     let phrases = plan?.segments?.find((s) => s.i === i)?.phrases;
     const ok = Array.isArray(phrases) && phrases.length && sameWords(phrases.map((p) => p?.text ?? '').join(' '), seg.text);
     if (!ok) phrases = autoPhrases(seg.text);
+    // Real word times (Whisper): each phrase takes its own words' times, in order. Used only when the phrases have
+    // exactly as many words as the transcript; any re-wording falls back to the proportional split below.
+    const segWords = Array.isArray(seg.words) ? seg.words.filter((x) => x && x.w) : [];
+    const phraseWords = phrases.map((p) => String(p.text).split(/\s+/).filter(Boolean));
+    if (segWords.length && phraseWords.reduce((n, w) => n + w.length, 0) === segWords.length) {
+      let k = 0;
+      phrases.forEach((p, pi) => {
+        const ws = phraseWords[pi].map((w) => {
+          const src = segWords[k++];
+          return { w, from: round3(src.from), to: round3(src.to) };
+        });
+        const nextStart = k < segWords.length ? segWords[k].from : seg.to;
+        const hi = String(p.hi ?? '').trim();
+        out.push({ from: ws[0].from, to: round3(Math.max(ws.at(-1).to, nextStart)), text: String(p.text).trim(), hi: hi && norm(p.text).includes(norm(hi)) ? hi : '', words: ws });
+      });
+      return;
+    }
     const lens = phrases.map((p) => Math.max(1, String(p.text).length));
     const total = lens.reduce((a, b) => a + b, 0);
     let t = seg.from;

@@ -54,3 +54,15 @@ test('fallback phrases, title and JSON helpers', () => {
   assert.equal(cleanTitle('#Edit video tanpa ribet sama sekali hari ini'), 'Edit video tanpa ribet sama sekali');
   assert.deepEqual(extractJson('ok ```json\n{"a":1}\n```'), { a: 1 });
 });
+
+test('with real word times (Whisper), each phrase spans its own words', () => {
+  const seg = { from: 1, to: 4, text: 'I never edit my videos', words: [{ w: 'I', from: 1, to: 1.2 }, { w: 'never', from: 1.3, to: 1.8 }, { w: 'edit', from: 2.0, to: 2.4 }, { w: 'my', from: 2.9, to: 3.0 }, { w: 'videos', from: 3.1, to: 3.8 }] };
+  const caps = timeCaptions([seg], { segments: [{ i: 0, phrases: [{ text: 'I never edit', hi: 'never' }, { text: 'my videos', hi: 'videos' }] }] });
+  assert.equal(caps.length, 2);
+  assert.deepEqual([caps[0].from, caps[0].to], [1, 2.9]); // held until the next phrase starts
+  assert.deepEqual([caps[1].from, caps[1].to], [2.9, 4]);
+  assert.deepEqual(caps[1].words.map((w) => [w.w, w.from]), [['my', 2.9], ['videos', 3.1]]);
+  // A re-worded phrase falls back to the proportional split.
+  const fb = timeCaptions([seg], { segments: [{ i: 0, phrases: [{ text: 'I never edit my clips at all', hi: '' }] }] });
+  assert.equal(fb.length, 2);
+});

@@ -13,6 +13,7 @@ import { STYLES, drawOverlay, drawSample } from './render.js';
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const FPS = 30;
+const GLIANA_STT = 'https://api.glianalabs.com/v1/motion-lite/transcribe';
 const MAX_W = 1080;
 
 let anna = null;
@@ -166,9 +167,35 @@ async function makeCaptions() {
   } catch {
     throw new Error('This video has no audio track we can read.');
   }
+  const lang = $('lang').value || undefined;
+  // First: GlianaAI's free Whisper (one call, real word times). Anna's audio.transcribe failed for every model with the
+  // provider's "url error" on 2026-11-26; it stays as the fallback, per speech piece.
+  const gl = await glianaStt(samples, lang).catch(() => null);
+  let segments = gl;
+  if (!segments) segments = await annaStt(samples, lang);
+  if (!segments.length) throw new Error('The speech could not be transcribed. Try a clearer recording.');
+  return planCaptions(segments);
+}
+
+/** GlianaAI speech-to-text: the whole clip as 16 kHz WAV, back as segments with word times; null if unavailable. */
+async function glianaStt(samples, lang) {
+  say($('status'), 'Transcribing…');
+  progress('mk', 0.15);
+  const body = wavBytes(samples, STT_RATE, 0, samples.length / STT_RATE);
+  const r = await fetch(`${GLIANA_STT}${lang ? `?language=${lang}` : ''}`, { method: 'POST', headers: { 'content-type': 'audio/wav' }, body, signal: AbortSignal.timeout(120_000) });
+  if (!r.ok) return null;
+  const j = await r.json();
+  const segs = (j.segments ?? [])
+    .map((s) => ({ from: s.start, to: s.end, text: String(s.text ?? '').trim(), words: (s.words ?? []).map((w) => ({ w: w.word, from: w.start, to: w.end })) }))
+    .filter((s) => s.text && s.to > s.from);
+  progress('mk', 0.8);
+  return segs.length ? segs : null;
+}
+
+/** Anna speech-to-text, one speech piece at a time (each piece keeps its real start and end). */
+async function annaStt(samples, lang) {
   const segs = speechSegments(samples, STT_RATE);
   if (!segs.length) throw new Error('No speech found in this video.');
-  const lang = $('lang').value || undefined;
   let done = 0;
   const texts = new Array(segs.length).fill('');
   const stt = { working: null, models: null, tried: [] };
@@ -189,9 +216,11 @@ async function makeCaptions() {
     }
   };
   await Promise.all([worker(), worker(), worker()]);
-  const segments = segs.map((s, i) => ({ ...s, text: texts[i] })).filter((s) => s.text);
-  if (!segments.length) throw new Error('The speech could not be transcribed. Try a clearer recording.');
+  return segs.map((s, i) => ({ ...s, text: texts[i] })).filter((s) => s.text);
+}
 
+/** One AI call: short phrases, highlight words and a headline, timed from the transcript. */
+async function planCaptions(segments) {
   say($('status'), 'Writing captions…');
   progress('mk', 0.88);
   let plan = null;

@@ -15,7 +15,9 @@
     "bundle": {
       "format": "static-spa",
       "entry": "index.html",
-      "external_origins": []
+      "external_origins": [
+        "https://api.glianalabs.com"
+      ]
     },
     "views": [
       {

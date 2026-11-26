@@ -29,7 +29,7 @@
           <input type="file" id="file" accept="video/*" />
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
           <strong id="drop-title">Choose a video</strong>
-          <span class="muted" id="drop-sub">Up to 60 seconds. It stays on your device; only the speech is sent for transcription.</span>
+          <span class="muted" id="drop-sub">Up to 60 seconds. It stays on your device; only the speech is sent for transcription, and it is not stored.</span>
         </label>
         <div class="field">
           <span class="label">Look</span>
@@ -89,6 +89,6 @@
 
     <!-- Not `hidden`: Chrome on Android draws no frames for a hidden video, so requestVideoFrameCallback never fires. -->
     <video id="v" playsinline preload="auto" class="src"></video>
-    <footer class="foot">Connected to the Anna host: speech-to-text and the AI captions run through Anna on your Anna credits. Your video itself is rendered on your own device and never uploaded.</footer>
+    <footer class="foot">Connected to the Anna host: the AI captions and headline run through Anna on your Anna credits. Speech is transcribed by GlianaAI (Whisper on Cloudflare), free, and not stored; Anna's speech-to-text is the fallback. Your video itself is rendered on your own device and never uploaded.</footer>
   </body>
 </html>
