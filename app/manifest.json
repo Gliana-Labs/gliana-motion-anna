@@ -32,11 +32,7 @@
         }
       }
     ],
-    "csp_overrides": {
-      "connect-src": [
-        "https:"
-      ]
-    },
+    "csp_overrides": {},
     "state_merge": "last_writer_wins"
   },
   "dev": {

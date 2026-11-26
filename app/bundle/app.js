@@ -78,7 +78,7 @@ async function transcribePiece(samples, seg, lang, stt) {
   const attempts = [];
   if (stt.working) attempts.push(stt.working);
   // First as a link (2026-11-26: inline base64 failed on EVERY model with the provider's "url error", so Anna's inline
-  // path is the broken part): the piece goes to the user's Anna file storage and the provider fetches a presigned URL.
+  // path is the broken part): the piece goes to Anna (upload.inline) and the provider fetches a presigned URL.
   for (const a of [{ format: 'wav', via: 'url' }, { format: 'm4a', via: 'url' }, { format: 'wav' }, { format: 'm4a' }])
     if (!attempts.some((x) => x.format === a.format && x.via === a.via && !x.model)) attempts.push(a);
   if (!stt.models) {
@@ -106,26 +106,21 @@ async function transcribePiece(samples, seg, lang, stt) {
       if (/QUOTA/i.test(String(e?.code ?? e?.message))) throw e; // out of credits: retrying other models would not help
       lastErr = e;
       stt.tried.push(`${a.model ?? 'default'}/${a.format}/${a.via ?? 'inline'}`);
-    } finally {
-      if (uploaded) anna.files.delete({ path: uploaded.path }).catch(() => undefined);
     }
   }
   throw new Error(`Transcription failed (${stt.tried.slice(-4).join(', ')}): ${String(lastErr?.message ?? lastErr).slice(0, 200)}`);
 }
 
 /**
- * Put one audio piece in the user's Anna file storage and return a 10-minute presigned link for the STT provider.
- * Deleted again right after transcription (the caller's finally).
+ * Hand one audio piece to Anna and get a ~30-minute presigned link for the STT provider (anna.upload.inline: the bytes
+ * travel through the host RPC, so no browser PUT, CSP or CORS is involved). 2026-11-26: the first try used
+ * files.upload_init + a direct PUT and failed with "Failed to fetch" in the real Anna window.
  */
 async function uploadForStt(bytes, format) {
   const mime = format === 'm4a' ? 'audio/mp4' : 'audio/wav';
-  const path = `stt/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${format}`;
-  const init = await anna.files.upload_init({ path, content_type: mime, size: bytes.byteLength, ttl_seconds: 900 });
-  const put = await fetch(init.put_url, { method: 'PUT', headers: { 'content-type': mime, ...(init.headers ?? {}) }, body: bytes });
-  if (!put.ok) throw new Error(`upload failed (${put.status})`);
-  await anna.files.upload_finalize({ path, size: bytes.byteLength });
-  const dl = await anna.files.download_url({ path, ttl_seconds: 600 });
-  return { path, url: dl.get_url };
+  const r = await anna.upload.inline({ filename: `speech-${Date.now()}.${format}`, mime_type: mime, content_b64: toBase64(bytes), purpose: 'user_artifact' });
+  if (!r?.download_url) throw new Error('upload returned no link');
+  return { url: r.download_url };
 }
 
 /** A piece of mono 16 kHz audio as M4A (AAC-LC) bytes, or null when this browser has no AAC encoder. */
