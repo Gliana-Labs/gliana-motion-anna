@@ -247,7 +247,6 @@ function paint() {
   drawOverlay(g, size.w, size.h, v.currentTime, project);
   $('seek').value = String(Math.round((v.currentTime / v.duration) * 1000));
   $('time').textContent = clock(v.currentTime);
-  document.querySelectorAll('#caps li').forEach((li) => li.classList.toggle('now', Number(li.dataset.from) <= v.currentTime && v.currentTime < Number(li.dataset.to)));
 }
 function loop() {
   paint();
@@ -289,37 +288,6 @@ function demo() {
   requestAnimationFrame(tick);
 }
 
-function renderCaps() {
-  const fmt = (t) => `${Math.floor(t / 60)}:${String((t % 60).toFixed(1)).padStart(4, '0')}`;
-  $('caps').innerHTML = project.captions
-    .map((c, i) => `<li data-i="${i}" data-from="${c.from}" data-to="${c.to}"><button type="button" class="t" aria-label="Jump to ${fmt(c.from)}">${fmt(c.from)}</button><input value="${esc(c.text)}" aria-label="Caption ${i + 1}" /><input class="hi" value="${esc(c.hi)}" placeholder="highlight" aria-label="Highlight word ${i + 1}" /></li>`)
-    .join('');
-  $('caps').querySelectorAll('li').forEach((li) => {
-    const c = project.captions[Number(li.dataset.i)];
-    const [text, hi] = li.querySelectorAll('input');
-    text.onchange = () => {
-      c.text = text.value.trim();
-      // Re-spread the words over the caption's time so karaoke still follows.
-      const ws = c.text.split(/\s+/).filter(Boolean);
-      const tot = ws.reduce((a, w) => a + w.length, 0) || 1;
-      let t0 = c.from;
-      c.words = ws.map((w) => {
-        const d = ((c.to - c.from) * w.length) / tot;
-        const r = { w, from: t0, to: t0 + d };
-        t0 += d;
-        return r;
-      });
-      paint();
-      save();
-    };
-    hi.onchange = () => {
-      c.hi = hi.value.trim();
-      paint();
-      save();
-    };
-    li.querySelector('.t').onclick = () => seekTo(c.from + 0.01);
-  });
-}
 const save = () =>
   store('last', {
     name: file?.name,
@@ -595,9 +563,7 @@ async function main() {
       $('post').value = project.post;
       $('post-card').hidden = !project.post;
       $('zoom').checked = project.zoom;
-      $('title').value = project.title;
       renderSwatches($('swatches2'));
-      renderCaps();
       $('pick').hidden = true;
       $('studio').hidden = false;
       await seekTo(0.05);
@@ -611,11 +577,6 @@ async function main() {
       progress('mk', null);
     }
   };
-  $('title').oninput = () => {
-    project.title = cleanTitle($('title').value);
-    paint();
-  };
-  $('title').onchange = save;
   const PLAY = '<path d="M8 5v14l11-7z" fill="currentColor" />';
   const PAUSE = '<path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor" />';
   const icon = (playing) => {
