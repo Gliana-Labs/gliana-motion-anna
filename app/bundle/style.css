@@ -96,3 +96,11 @@ a.primary { display: block; text-align: center; text-decoration: none; }
 video.src { position: fixed; right: 0; bottom: 0; width: 2px; height: 2px; opacity: 0.01; pointer-events: none; }
 .foot { font-size: 13px; color: var(--soft); }
 @media (prefers-reduced-motion: reduce) { button, .bar, .drop { transition: none; } }
+
+.extras { gap: 10px; }
+.toggle { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
+.toggle input { width: 20px; height: 20px; accent-color: var(--acc); }
+.extra-row { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; }
+.extra-row .done { color: #16a34a; font-weight: 700; }
+#post { font: inherit; font-size: 14px; resize: vertical; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--ground); color: var(--ink); width: 100%; }
+.small-btn { padding: 6px 12px; font-size: 13px; }

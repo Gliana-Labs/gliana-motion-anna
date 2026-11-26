@@ -7,8 +7,8 @@
 //            original audio by mp4-muxer. Measured on a mid-range phone (Dimensity 7300): 60 s in about 67 s.
 import { AnnaAppRuntime } from '/static/anna-apps/_sdk/latest/index.js';
 import { Muxer, ArrayBufferTarget } from './vendor/mp4-muxer.mjs';
-import { MAX_SECONDS, STT_RATE, PLAN_PROMPT, speechSegments, wavBytes, toBase64, timeCaptions, captionAt, cleanTitle, extractJson } from './logic.js';
-import { STYLES, drawOverlay, drawSample } from './render.js';
+import { MAX_SECONDS, STT_RATE, PLAN_PROMPT, speechSegments, wavBytes, toBase64, timeCaptions, captionAt, cleanTitle, extractJson, cleanBroll, cleanPost, mixMusic } from './logic.js';
+import { STYLES, drawOverlay, drawSample, drawBase } from './render.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -18,7 +18,7 @@ const MAX_W = 1080;
 
 let anna = null;
 let file = null;
-let project = { style: 'pop', title: '', captions: [] };
+let project = { style: 'pop', title: '', captions: [], broll: [], mood: '', post: '', zoom: true, music: null };
 let size = { w: 720, h: 1280 };
 
 function say(el, msg, err = false) {
@@ -237,13 +237,13 @@ async function planCaptions(segments) {
     plan = null; // captions still come out, phrased by the fallback
   }
   // Segment numbers in the prompt index the filtered list.
-  return { title: cleanTitle(plan?.title), captions: timeCaptions(segments, plan) };
+  return { title: cleanTitle(plan?.title), captions: timeCaptions(segments, plan), broll: cleanBroll(plan, segments), mood: String(plan?.mood ?? '').trim().slice(0, 80), post: cleanPost(plan?.post) };
 }
 
 // ── Preview ──────────────────────────────────────────────────────────────
 const g = $('cv').getContext('2d');
 function paint() {
-  g.drawImage(v, 0, 0, size.w, size.h);
+  drawBase(g, v, size.w, size.h, v.currentTime, project);
   drawOverlay(g, size.w, size.h, v.currentTime, project);
   $('seek').value = String(Math.round((v.currentTime / v.duration) * 1000));
   $('time').textContent = clock(v.currentTime);
@@ -320,7 +320,136 @@ function renderCaps() {
     li.querySelector('.t').onclick = () => seekTo(c.from + 0.01);
   });
 }
-const save = () => store('last', { name: file?.name, ...project });
+const save = () =>
+  store('last', {
+    name: file?.name,
+    style: project.style,
+    title: project.title,
+    captions: project.captions,
+    broll: project.broll.map(({ from, to, prompt }) => ({ from, to, prompt })),
+    mood: project.mood,
+    post: project.post,
+    zoom: project.zoom,
+  });
+
+// ── Extras on Anna: music, B-roll pictures ───────────────────────────────
+/**
+ * Bring an Anna media link (presigned R2) into the window as a blob:. Only a blob (or a CORS-readable file) can be drawn
+ * into the export canvas or decoded for the mix; a plain cross-origin <img> would taint the canvas and break export.
+ */
+async function loadAsset(url) {
+  const r = await fetch(url, { mode: 'cors', signal: AbortSignal.timeout(60_000) });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const blob = await r.blob();
+  return { blob, url: URL.createObjectURL(blob) };
+}
+
+async function musicModel() {
+  const cat = await anna.llm.catalog({ serviceType: 'music_gen' }).catch(() => null);
+  const ms = cat?.models ?? [];
+  return ms.find((m) => m.isUserPreferred) ?? ms[0] ?? null;
+}
+
+async function addMusic() {
+  const btn = $('add-music');
+  btn.disabled = true;
+  const st = $('music-status');
+  st.classList.remove('done');
+  try {
+    st.textContent = 'Composing music… (about a minute)';
+    const m = await musicModel();
+    const d = m?.capabilities?.duration;
+    const want = Math.ceil(v.duration) + 1;
+    const durationSec = d?.type === 'range' ? Math.min(Math.max(want, d.min ?? 5), d.max ?? want) : undefined;
+    const job = await anna.music.generateAwait(
+      {
+        prompt: `${project.mood || 'warm, modern'} instrumental background music for a short talking video, no vocals, steady, not distracting`,
+        instrumental: true,
+        ...(durationSec ? { durationSec } : {}),
+        ...(m?.modelName ? { model: m.modelName } : {}),
+        idempotencyKey: `ml-music-${Math.round(v.duration * 10)}-${(project.mood || 'x').replace(/[^A-Za-z0-9]/g, '').slice(0, 20)}-${Date.now() % 1e6}`,
+      },
+      { onProgress: (p) => (st.textContent = `Composing music… ${p.state ?? ''}`), timeoutMs: 10 * 60_000 },
+    );
+    const url = job?.result?.url;
+    if (!url) throw new Error('no music came back');
+    let asset;
+    try {
+      asset = await loadAsset(url);
+    } catch {
+      // Playable but not readable here: preview it, say plainly it cannot go into the export.
+      $('music').src = url;
+      project.music = null;
+      st.textContent = `Music made, but this window may not read it (${new URL(url).host}), so it plays in the preview only and is not in the export.`;
+      return;
+    }
+    project.music = asset;
+    $('music').src = asset.url;
+    $('music').volume = 0.35;
+    st.textContent = `Music added${project.mood ? ` (${project.mood})` : ''}. Plays under your voice in the preview and the export.`;
+    st.classList.add('done');
+    btn.textContent = 'New music';
+  } catch (e) {
+    const quota = /QUOTA/i.test(String(e?.code ?? e?.message));
+    st.textContent = quota ? 'Your Anna credits ran out.' : `Music failed: ${String(e?.message ?? e).slice(0, 160)}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function addBroll() {
+  const btn = $('add-broll');
+  const st = $('broll-status');
+  st.classList.remove('done');
+  if (!project.broll.length) {
+    st.textContent = 'The AI found no concrete moment to picture in this video.';
+    return;
+  }
+  btn.disabled = true;
+  let ok = 0;
+  let blocked = 0;
+  let blockedHost = '';
+  try {
+    st.textContent = `Making ${project.broll.length} picture${project.broll.length > 1 ? 's' : ''}…`;
+    await Promise.all(
+      project.broll.map(async (b) => {
+        try {
+          const r = await anna.image.generate({ prompt: `${b.prompt}, photographic, vivid, no text`, size: '1024x1536' }, { timeoutMs: 180_000 });
+          const url = r?.images?.[0]?.url;
+          if (!url) return;
+          let asset;
+          try {
+            asset = await loadAsset(url);
+          } catch {
+            blocked++;
+            blockedHost = new URL(url).host;
+            return;
+          }
+          const img = new Image();
+          img.src = asset.url;
+          await img.decode();
+          b.img = img;
+          b.asset = asset;
+          ok++;
+        } catch (e) {
+          if (/QUOTA/i.test(String(e?.code ?? e?.message))) throw e;
+        }
+      }),
+    );
+    st.textContent = ok
+      ? `${ok} picture${ok > 1 ? 's' : ''} added at the moments you mention.${blocked ? ` ${blocked} could not be read here.` : ''}`
+      : blocked
+        ? `Pictures were made, but this window may not read them (${blockedHost}), so they cannot go into the export.`
+        : 'No pictures came back. Try again.';
+    if (ok) st.classList.add('done');
+    btn.textContent = 'New pictures';
+    paint();
+  } catch (e) {
+    st.textContent = /QUOTA/i.test(String(e?.code ?? e?.message)) ? 'Your Anna credits ran out.' : `Pictures failed: ${String(e?.message ?? e).slice(0, 160)}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 // ── Export ───────────────────────────────────────────────────────────────
 async function pickVideoCodec(w, h) {
@@ -374,7 +503,7 @@ async function exportMp4() {
     const onFrame = (_now, meta) => {
       const t = meta.mediaTime;
       if (venc.encodeQueueSize <= 6) {
-        eg.drawImage(v, 0, 0, w, h);
+        drawBase(eg, v, w, h, t, project);
         drawOverlay(eg, w, h, t, project);
         const frame = new VideoFrame(cv, { timestamp: Math.round(t * 1e6), duration: Math.round(1e6 / FPS) });
         const key = t - lastKey >= 2;
@@ -393,12 +522,22 @@ async function exportMp4() {
   await venc.flush();
   if (ac) {
     say($('ex-status'), 'Adding sound…');
+    let chans = Array.from({ length: ch }, (_, c) => audio.getChannelData(Math.min(c, audio.numberOfChannels - 1)));
+    if (project.music?.blob) {
+      try {
+        const mctx = new OfflineAudioContext(2, 1, audio.sampleRate);
+        const mb = await mctx.decodeAudioData(await project.music.blob.arrayBuffer());
+        chans = mixMusic(chans, Array.from({ length: mb.numberOfChannels }, (_, c) => mb.getChannelData(c)), audio.sampleRate);
+      } catch (e) {
+        console.warn('music mix skipped', e);
+      }
+    }
     const aenc = new AudioEncoder({ output: (chunk, meta) => muxer.addAudioChunk(chunk, meta), error: (e) => console.error(e) });
     aenc.configure(ac.cfg);
     for (let s = 0; s < audio.length; s += 4096) {
       const n = Math.min(4096, audio.length - s);
       const data = new Float32Array(n * ch);
-      for (let c = 0; c < ch; c++) data.set(audio.getChannelData(Math.min(c, audio.numberOfChannels - 1)).subarray(s, s + n), c * n);
+      for (let c = 0; c < ch; c++) data.set(chans[c].subarray(s, s + n), c * n);
       const ad = new AudioData({ format: 'f32-planar', sampleRate: audio.sampleRate, numberOfFrames: n, numberOfChannels: ch, timestamp: Math.round((s / audio.sampleRate) * 1e6), data });
       aenc.encode(ad);
       ad.close();
@@ -447,7 +586,15 @@ async function main() {
     $('make').disabled = true;
     try {
       const out = await makeCaptions();
-      project = { ...project, ...out };
+      project = { ...project, ...out, music: null };
+      $('music').removeAttribute('src');
+      $('music-status').textContent = "AI music in the video's mood, under your voice. Uses Anna credits.";
+      $('add-music').textContent = 'Add background music';
+      $('add-broll').textContent = project.broll.length ? `Add ${project.broll.length} B-roll picture${project.broll.length > 1 ? 's' : ''}` : 'Add B-roll pictures';
+      $('broll-status').textContent = project.broll.length ? `For: ${project.broll.map((b) => b.prompt.split(',')[0]).join(' · ').slice(0, 140)}. Uses Anna credits.` : 'The AI found no concrete moment to picture.';
+      $('post').value = project.post;
+      $('post-card').hidden = !project.post;
+      $('zoom').checked = project.zoom;
       $('title').value = project.title;
       renderSwatches($('swatches2'));
       renderCaps();
@@ -475,6 +622,38 @@ async function main() {
     $('play-icon').innerHTML = playing ? PAUSE : PLAY;
     $('play').setAttribute('aria-label', playing ? 'Pause' : 'Play');
   };
+  $('zoom').onchange = () => {
+    project.zoom = $('zoom').checked;
+    paint();
+    save();
+  };
+  $('add-music').onclick = addMusic;
+  $('add-broll').onclick = addBroll;
+  $('post').onchange = () => {
+    project.post = $('post').value;
+    save();
+  };
+  $('copy-post').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText($('post').value);
+      $('copy-post').textContent = 'Copied';
+      setTimeout(() => ($('copy-post').textContent = 'Copy'), 1400);
+    } catch {
+      $('post').select();
+    }
+  };
+  const music = $('music');
+  const syncMusic = () => {
+    if (!music.src) return;
+    // The export plays the video muted; the music is mixed into the file then, so keep the preview track quiet.
+    if (v.muted) return music.pause();
+    if (music.duration > 0) music.currentTime = v.currentTime % music.duration;
+    if (v.paused) music.pause();
+    else music.play().catch(() => undefined);
+  };
+  v.addEventListener('play', syncMusic);
+  v.addEventListener('pause', syncMusic);
+  v.addEventListener('seeked', syncMusic);
   $('play').onclick = () => {
     if (v.paused) {
       v.play();

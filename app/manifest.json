@@ -34,7 +34,17 @@
         }
       }
     ],
-    "csp_overrides": {},
+    "csp_overrides": {
+      "img-src": [
+        "https:"
+      ],
+      "media-src": [
+        "https:"
+      ],
+      "connect-src": [
+        "https:"
+      ]
+    },
     "state_merge": "last_writer_wins"
   },
   "dev": {

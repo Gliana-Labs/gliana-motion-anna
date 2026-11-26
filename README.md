@@ -15,6 +15,11 @@ Slug `motion-lite`, bundle-only (no executa, no external origins).
 - **Looks:** Pop, Karaoke (word by word), Duo (pinned lime headline, pink highlights). `render.js` draws preview and
   export with the same code.
 - **Export:** play mode (below), 3.5 Mbps H.264 (else VP9/AV1) + AAC (else Opus).
+- **Extras (v0.2.0):** punch-in zoom on highlight words (`logic.zoomAt`, `render.drawBase`); background music via
+  `anna.music.generateAwait` (catalog `music_gen`, `durationSec` only for range models), mixed at export by `logic.mixMusic`
+  (looped, faded, ducked to 40% under the voice); up to 3 B-roll cards via `anna.image.generate` (`logic.cleanBroll`); a post
+  caption from the same plan call. Anna media links are fetched into `blob:` URLs so the export canvas stays untainted; if
+  the storage refuses a CORS read, the app says so and names the host (preview only, not in the export).
 
 Harness run (mocked transcribe + LLM, real speech detection and export), 14 s test video with three speech bursts:
 three pieces found at 0.5 / 4.2 / 8.9 s, 6 captions, exported in 14 s, valid MP4 (H.264 + Opus, 419 frames).

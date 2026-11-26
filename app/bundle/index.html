@@ -71,9 +71,25 @@
             <div class="swatches" id="swatches2" role="radiogroup" aria-label="Caption look"></div>
           </div>
         </div>
+        <div class="card extras">
+          <h2>Extras</h2>
+          <label class="toggle"><input type="checkbox" id="zoom" checked /> <span>Punch-in zoom on highlight words</span></label>
+          <div class="extra-row">
+            <button type="button" id="add-music" class="ghost">Add background music</button>
+            <span class="muted small" id="music-status">AI music in the video's mood, under your voice. Uses Anna credits.</span>
+          </div>
+          <div class="extra-row">
+            <button type="button" id="add-broll" class="ghost">Add B-roll pictures</button>
+            <span class="muted small" id="broll-status">AI pictures for the moments you mention. Uses Anna credits.</span>
+          </div>
+        </div>
         <div class="card">
           <div class="caps-head"><h2>Captions</h2><span class="muted small">Tap a time to jump there</span></div>
           <ol id="caps" class="caps"></ol>
+        </div>
+        <div class="card" id="post-card" hidden>
+          <div class="caps-head"><h2>Post caption</h2><button type="button" id="copy-post" class="ghost small-btn">Copy</button></div>
+          <textarea id="post" rows="4" aria-label="Post caption"></textarea>
         </div>
         <div class="card export">
           <button type="button" id="export" class="primary big">Export MP4</button>
@@ -89,6 +105,7 @@
 
     <!-- Not `hidden`: Chrome on Android draws no frames for a hidden video, so requestVideoFrameCallback never fires. -->
     <video id="v" playsinline preload="auto" class="src"></video>
+    <audio id="music" loop preload="auto"></audio>
     <footer class="foot">Connected to the Anna host: the AI captions and headline run through Anna on your Anna credits. Speech is transcribed by GlianaAI (Whisper on Cloudflare), free, and not stored; Anna's speech-to-text is the fallback. Your video itself is rendered on your own device and never uploaded.</footer>
   </body>
 </html>

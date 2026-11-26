@@ -66,3 +66,32 @@ test('with real word times (Whisper), each phrase spans its own words', () => {
   const fb = timeCaptions([seg], { segments: [{ i: 0, phrases: [{ text: 'I never edit my clips at all', hi: '' }] }] });
   assert.equal(fb.length, 2);
 });
+
+import { cleanBroll, zoomAt, mixMusic, cleanPost } from '../app/bundle/logic.js';
+
+test('b-roll: at most 3, inside its segment, no overlaps, no empty prompts', () => {
+  const segs = [{ from: 0, to: 3 }, { from: 3, to: 3.5 }, { from: 4, to: 9 }, { from: 9, to: 12 }, { from: 12, to: 15 }];
+  const b = cleanBroll({ broll: [{ i: 0, prompt: 'coffee shop' }, { i: 1, prompt: 'too short' }, { i: 2, prompt: '' }, { i: 3, prompt: 'money' }, { i: 4, prompt: 'city' }, { i: 0, prompt: 'dup' }, { i: 9, prompt: 'nope' }] }, segs);
+  assert.deepEqual(b.map((x) => [x.from, x.to, x.prompt]), [[0, 2.2, 'coffee shop'], [9, 11.2, 'money'], [12, 14.2, 'city']]);
+  assert.equal(cleanPost('  hi  \n #a '), 'hi\n #a');
+});
+
+test('punch-in zoom peaks mid-word on the highlight only', () => {
+  const caps = [{ from: 0, to: 2, hi: 'never', words: [{ w: 'I', from: 0, to: 0.2 }, { w: 'never', from: 0.2, to: 0.8 }] }];
+  assert.equal(zoomAt(caps, 0.1), 1);
+  assert.ok(Math.abs(zoomAt(caps, 0.2 + 0.225) - 1.08) < 1e-6);
+  assert.equal(zoomAt(caps, 1.5), 1);
+});
+
+test('music is looped, faded, ducked under loud voice, and never clips', () => {
+  const rate = 1000;
+  const voice = [new Float32Array(4000)];
+  for (let i = 2000; i < 3000; i++) voice[0][i] = 0.5; // loud stretch
+  const music = [new Float32Array(500).fill(1)];
+  const [out] = mixMusic(voice, music, rate, 0.2);
+  assert.equal(out[0], 0); // fade-in starts silent
+  assert.ok(Math.abs(out[1000] - 0.2) < 1e-6); // full level, looped past the 500-sample track
+  assert.ok(Math.abs(out[2500] - (0.5 + 0.2 * 0.4)) < 1e-6); // ducked under the voice
+  assert.ok(out.every((x) => x <= 1 && x >= -1));
+  assert.ok(Math.abs(out[3999]) < 0.01); // faded out
+});

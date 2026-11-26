@@ -88,11 +88,16 @@ export function toBase64(bytes) {
 
 export const PLAN_PROMPT = `You edit short talking-head videos into punchy social clips. You get numbered speech segments with their text.
 Return ONLY JSON:
-{"title":"<hook headline, max 6 words, same language as the speech>","segments":[{"i":<segment number>,"phrases":[{"text":"<2-5 words>","hi":"<one word from that phrase to highlight, or empty>"}]}]}
+{"title":"<hook headline, max 6 words, same language as the speech>",
+ "segments":[{"i":<segment number>,"phrases":[{"text":"<2-5 words>","hi":"<one word from that phrase to highlight, or empty>"}]}],
+ "broll":[{"i":<segment number>,"prompt":"<a vivid, concrete image prompt in English for that moment, no text in the image>"}],
+ "mood":"<background music mood in English, e.g. calm lo-fi, upbeat pop, cinematic>",
+ "post":"<a social media caption in the speech's language, max 200 characters, then 3-6 hashtags>"}
 Rules:
 - Split each segment's text into phrases of 2 to 5 words, in order, using the segment's own words (fix obvious transcription typos only).
 - Highlight the single most important word of a phrase (a number, a key noun or verb); leave "hi" empty for filler phrases.
-- Keep the speech's language. No emoji, no hashtags.`;
+- broll: 0 to 3 moments where a picture helps (a concrete thing, place or action is mentioned). Skip abstract talk.
+- Keep the speech's language for title, phrases and post. No emoji in phrases or title.`;
 
 /** Fallback when the AI's phrases do not fit a segment: 3-word phrases, highlight the longest word. */
 export function autoPhrases(text) {
@@ -182,4 +187,68 @@ export function extractJson(text) {
   const b = s.lastIndexOf('}');
   if (a < 0 || b <= a) throw new Error('no_json');
   return JSON.parse(s.slice(a, b + 1));
+}
+
+/** B-roll moments: at most 3, each at its segment's start for up to 2.2 s, never overlapping. */
+export function cleanBroll(plan, segments) {
+  const out = [];
+  for (const b of Array.isArray(plan?.broll) ? plan.broll : []) {
+    const seg = segments[b?.i];
+    const prompt = String(b?.prompt ?? '').trim().slice(0, 300);
+    if (!seg || !prompt) continue;
+    const from = seg.from;
+    const to = Math.min(seg.to, from + 2.2);
+    if (to - from < 0.8 || out.some((x) => from < x.to && to > x.from)) continue;
+    out.push({ from: round3(from), to: round3(to), prompt });
+    if (out.length === 3) break;
+  }
+  return out;
+}
+
+export function cleanPost(s) {
+  return String(s ?? '').replace(/\s+\n/g, '\n').trim().slice(0, 400);
+}
+
+/** Punch-in zoom: 1 + up to 8% around each highlighted word, easing in and out over 0.45 s. */
+export function zoomAt(captions, t) {
+  let z = 1;
+  for (const c of captions) {
+    if (!c.hi || t < c.from - 0.5 || t > c.to + 0.5) continue;
+    const key = c.hi.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+    const w = (c.words ?? []).find((x) => x.w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '') === key);
+    if (!w) continue;
+    const a = (t - w.from) / 0.45;
+    if (a >= 0 && a <= 1) z = Math.max(z, 1 + 0.08 * Math.sin(a * Math.PI));
+  }
+  return z;
+}
+
+/**
+ * Music under the voice: looped to length, faded in (0.6 s) and out (1.2 s), at `gain`, and ducked to 40% of that
+ * while the voice is loud. Channels are mixed per channel; the music's channel is reused when it has fewer.
+ */
+export function mixMusic(voice, music, rate, gain = 0.16) {
+  const len = voice[0].length;
+  const out = voice.map((ch) => new Float32Array(ch));
+  if (!music?.length || !music[0].length) return out;
+  const win = Math.max(1, Math.floor(rate * 0.05));
+  const env = new Float32Array(Math.ceil(len / win));
+  for (let i = 0; i < env.length; i++) {
+    let s = 0;
+    const a = i * win;
+    const b = Math.min(len, a + win);
+    for (let j = a; j < b; j++) s += Math.abs(voice[0][j]);
+    env[i] = s / Math.max(1, b - a);
+  }
+  const fi = rate * 0.6;
+  const fo = rate * 1.2;
+  for (let c = 0; c < out.length; c++) {
+    const m = music[Math.min(c, music.length - 1)];
+    for (let i = 0; i < len; i++) {
+      const fade = Math.min(1, i / fi, (len - i) / fo);
+      const duck = env[Math.floor(i / win)] > 0.04 ? 0.4 : 1;
+      out[c][i] = Math.max(-1, Math.min(1, out[c][i] + m[i % m.length] * gain * duck * fade));
+    }
+  }
+  return out;
 }
