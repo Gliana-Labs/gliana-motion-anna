@@ -209,33 +209,6 @@ export function cleanPost(s) {
   return String(s ?? '').replace(/\s+\n/g, '\n').trim().slice(0, 400);
 }
 
-/** Gap between punch-ins: on every highlight (about one a second) it read as the video always zooming. */
-export const PUNCH_GAP = 4;
-
-/** The highlight words that get a punch-in: the first one, then the next at least PUNCH_GAP seconds later, and so on. */
-export function punchTimes(captions) {
-  const out = [];
-  let last = -Infinity;
-  for (const c of captions) {
-    if (!c.hi) continue;
-    const key = c.hi.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
-    const w = (c.words ?? []).find((x) => x.w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '') === key);
-    if (!w || w.from - last < PUNCH_GAP) continue;
-    out.push(w.from);
-    last = w.from;
-  }
-  return out;
-}
-
-/** Punch-in zoom: 1 + up to 8% at each punch time, easing in and out over 0.45 s. */
-export function zoomAt(captions, t) {
-  for (const at of punchTimes(captions)) {
-    const a = (t - at) / 0.45;
-    if (a >= 0 && a <= 1) return 1 + 0.08 * Math.sin(a * Math.PI);
-  }
-  return 1;
-}
-
 /**
  * Music under the voice: looped to length, faded in (0.6 s) and out (1.2 s), at `gain`, and ducked to 40% of that
  * while the voice is loud. Channels are mixed per channel; the music's channel is reused when it has fewer.

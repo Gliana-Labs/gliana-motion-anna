@@ -18,7 +18,7 @@ const MAX_W = 1080;
 
 let anna = null;
 let file = null;
-let project = { style: 'pop', title: '', captions: [], broll: [], mood: '', post: '', zoom: true, music: null };
+let project = { style: 'pop', title: '', captions: [], broll: [], mood: '', post: '', music: null };
 let size = { w: 720, h: 1280 };
 
 function say(el, msg, err = false) {
@@ -297,7 +297,6 @@ const save = () =>
     broll: project.broll.map(({ from, to, prompt }) => ({ from, to, prompt })),
     mood: project.mood,
     post: project.post,
-    zoom: project.zoom,
   });
 
 // ── Extras on Anna: music, B-roll pictures ───────────────────────────────
@@ -562,7 +561,6 @@ async function main() {
       $('broll-status').textContent = project.broll.length ? `For: ${project.broll.map((b) => b.prompt.split(',')[0]).join(' · ').slice(0, 140)}. Uses Anna credits.` : 'The AI found no concrete moment to picture.';
       $('post').value = project.post;
       $('post-card').hidden = !project.post;
-      $('zoom').checked = project.zoom;
       renderSwatches($('swatches2'));
       $('pick').hidden = true;
       $('studio').hidden = false;
@@ -582,11 +580,6 @@ async function main() {
   const icon = (playing) => {
     $('play-icon').innerHTML = playing ? PAUSE : PLAY;
     $('play').setAttribute('aria-label', playing ? 'Pause' : 'Play');
-  };
-  $('zoom').onchange = () => {
-    project.zoom = $('zoom').checked;
-    paint();
-    save();
   };
   $('add-music').onclick = addMusic;
   $('add-broll').onclick = addBroll;

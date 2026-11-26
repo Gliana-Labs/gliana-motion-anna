@@ -1,6 +1,6 @@
 // Motion Lite overlays: drawn the same way for the live preview, the style swatches and the export, so what you see is
 // what you get. Fixed zones that never cover the face: a headline near the top, captions low on the chest.
-import { captionAt, zoomAt } from './logic.js';
+import { captionAt } from './logic.js';
 
 /** Plus Jakarta Sans (OFL, bundled in fonts/), loaded by app.js before the first frame; system faces as fallback. */
 export const FONT = '"Jakarta", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
@@ -109,16 +109,9 @@ function drawCaption(g, w, h, t, cap, st, styleId) {
   g.restore();
 }
 
-/** The video frame itself, with the punch-in zoom (toward the upper middle, where the face is) when it is on. */
-export function drawBase(g, src, w, h, t, project) {
-  const z = project.zoom ? zoomAt(project.captions ?? [], t) : 1;
-  if (z <= 1.0001) {
-    g.drawImage(src, 0, 0, w, h);
-    return;
-  }
-  const dw = w * z;
-  const dh = h * z;
-  g.drawImage(src, (w - dw) / 2, (h - dh) * 0.4, dw, dh);
+/** The video frame itself. */
+export function drawBase(g, src, w, h) {
+  g.drawImage(src, 0, 0, w, h);
 }
 
 /** A B-roll picture as a card between the headline and the captions: pops in, holds, fades out. */
